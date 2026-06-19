@@ -15,9 +15,10 @@ import { StatsManager } from "./statsManager.js";
 import { registerAstCommand, registerAstGainCommand } from "./tui.js";
 import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
-import { isAstBroAvailable } from "./utils.js";
+import { getAstBroInfo, satisfiesSemver } from "./utils.js";
 
 const SUPPORTED_PI_RANGE = "^0.79.8";
+const SUPPORTED_AST_BRO_RANGE = ">=0.1.0"; // Adjust when ast-bro API requirements are known.
 
 /**
  * Check whether the running pi-coding-agent version satisfies the supported
@@ -25,22 +26,7 @@ const SUPPORTED_PI_RANGE = "^0.79.8";
  * so ^0.79.8 accepts >= 0.79.8 and < 0.80.0.
  */
 function isPiVersionSupported(version: string): boolean {
-  const base = SUPPORTED_PI_RANGE.replace(/^\^/, "");
-  const [vMajor, vMinor, vPatch] = version.split(".").map((p) => Number.parseInt(p, 10));
-  const [rMajor, rMinor, rPatch] = base.split(".").map((p) => Number.parseInt(p, 10));
-
-  if (Number.isNaN(vMajor) || Number.isNaN(rMajor)) return false;
-  if (vMajor !== rMajor) return false;
-
-  if (vMajor === 0) {
-    if (vMinor !== rMinor) return false;
-    if (vPatch < rPatch) return false;
-    return true;
-  }
-
-  if (vMinor < rMinor) return false;
-  if (vMinor === rMinor && vPatch < rPatch) return false;
-  return true;
+  return satisfiesSemver(version, SUPPORTED_PI_RANGE);
 }
 
 /**
@@ -105,7 +91,20 @@ export default function piAstBroExtension(pi: ExtensionAPI): void {
     const config = await settings.load(ctx.cwd);
     if (!config.enabled) return;
 
-    if (isAstBroAvailable()) {
+    const astBroInfo = getAstBroInfo();
+    if (astBroInfo.available && astBroInfo.version && !satisfiesSemver(astBroInfo.version, SUPPORTED_AST_BRO_RANGE)) {
+      const message = `pi-ast-bro: installed ast-bro (${astBroInfo.version}) is not supported. Expected ${SUPPORTED_AST_BRO_RANGE}. Extension disabled.`;
+      try {
+        ctx.ui.notify(message, "error");
+      } catch {
+        // UI may differ in incompatible versions; ignore notification failures.
+      }
+      config.enabled = false;
+      await settings.save(ctx.cwd, config);
+      return;
+    }
+
+    if (astBroInfo.available) {
       ctx.ui.notify("pi-ast-bro: ast-bro detected", "info");
       return;
     }

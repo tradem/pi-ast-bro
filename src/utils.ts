@@ -151,6 +151,70 @@ function getGitShortSha(): string | null {
 }
 
 /**
+ * Minimal semver-range checker.
+ *
+ * Supports `^`, `>=`, `>`, `<=`, `<`, `=` and exact ranges. Build metadata is
+ * ignored. This avoids pulling in the full `semver` package for the few checks
+ * performed by the extension.
+ */
+export function satisfiesSemver(version: string, range: string): boolean {
+  const cleanVersion = version.replace(/\+.*/, "");
+  const [vMajorStr, vMinorStr, vPatchStr = "0"] = cleanVersion.split(".");
+  const vMajor = Number.parseInt(vMajorStr, 10);
+  const vMinor = Number.parseInt(vMinorStr, 10);
+  const vPatch = Number.parseInt(vPatchStr, 10);
+  if ([vMajor, vMinor, vPatch].some(Number.isNaN)) return false;
+
+  const numeric = (major: number, minor: number, patch: number) => major * 1_000_000 + minor * 1_000 + patch;
+
+  if (range.startsWith("^")) {
+    const base = range.slice(1);
+    const [rMajorStr, rMinorStr, rPatchStr = "0"] = base.split(".");
+    const rMajor = Number.parseInt(rMajorStr, 10);
+    const rMinor = Number.parseInt(rMinorStr, 10);
+    const rPatch = Number.parseInt(rPatchStr, 10);
+    if ([rMajor, rMinor, rPatch].some(Number.isNaN)) return false;
+    if (vMajor !== rMajor) return false;
+    if (vMajor === 0) {
+      if (vMinor !== rMinor) return false;
+      if (vPatch < rPatch) return false;
+      return true;
+    }
+    if (vMinor < rMinor) return false;
+    if (vMinor === rMinor && vPatch < rPatch) return false;
+    return true;
+  }
+
+  const opMatch = range.match(/^(>=|>|<=|<|=)?\s*(.+)$/);
+  if (!opMatch) return false;
+  const op = opMatch[1] || "=";
+  const base = opMatch[2];
+  const [rMajorStr, rMinorStr, rPatchStr = "0"] = base.split(".");
+  const rMajor = Number.parseInt(rMajorStr, 10);
+  const rMinor = Number.parseInt(rMinorStr, 10);
+  const rPatch = Number.parseInt(rPatchStr, 10);
+  if ([rMajor, rMinor, rPatch].some(Number.isNaN)) return false;
+
+  const vValue = numeric(vMajor, vMinor, vPatch);
+  const rValue = numeric(rMajor, rMinor, rPatch);
+
+  switch (op) {
+    case ">=":
+      return vValue >= rValue;
+    case ">":
+      return vValue > rValue;
+    case "<=":
+      return vValue <= rValue;
+    case "<":
+      return vValue < rValue;
+    case "=":
+      return vValue === rValue;
+    default:
+      return false;
+  }
+}
+
+/**
  * Read the extension version from package.json.
  *
  * In a development checkout the current git short SHA is appended as build
