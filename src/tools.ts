@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
-import type { StatsManager } from "./statsManager.js";
+import { readFileSync, statSync } from "node:fs";
+import { formatBytesHuman, type StatsManager } from "./statsManager.js";
 import {
   isAstBroAvailable,
   isPathSafe,
@@ -98,7 +98,13 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
     }),
-    async execute(_toolCallId, params) {
+    async execute(
+      _toolCallId: string,
+      params: { query: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ExtensionContext,
+    ) {
       if (!isAstBroAvailable()) {
         return {
           content: [{ type: "text", text: "ast-bro is not installed or not on PATH." }],
@@ -116,6 +122,10 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
         };
       }
 
+      if (result.status === 0 && typeof ctx?.cwd === "string") {
+        recordSearchSavings(result.stdout || "", ctx.cwd, stats, ctx);
+      }
+
       return {
         content: [{ type: "text", text: result.stdout || result.stderr }],
         isError: result.status !== 0,
@@ -123,4 +133,52 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
       };
     },
   });
+}
+
+/**
+ * Estimate byte savings from `ast-bro search` by comparing the full size of
+ * every referenced file against the emitted result text. The search output
+ * already contains small excerpts, so this approximates how much raw source
+ * was avoided.
+ */
+function recordSearchSavings(
+  stdout: string,
+  cwd: string,
+  stats: StatsManager,
+  ctx: ExtensionContext,
+): void {
+  const lines = stdout.split("\n");
+  const seenFiles = new Set<string>();
+  let originalBytes = 0;
+
+  const headerPattern = /^([A-Za-z]:)?\/?.+?:\d+-\d+\s+\[score/;
+
+  for (const line of lines) {
+    const match = line.match(headerPattern);
+    if (!match) continue;
+
+    const rawPath = match[0].split(":")[0];
+    if (seenFiles.has(rawPath)) continue;
+
+    const resolved = resolveExistingFilePath(cwd, rawPath);
+    if (!resolved) continue;
+
+    seenFiles.add(rawPath);
+    try {
+      originalBytes += statSync(resolved).size;
+    } catch {
+      // Ignore files we cannot stat.
+    }
+  }
+
+  const outputBytes = Buffer.byteLength(stdout, "utf-8");
+  const savedBytes = Math.max(0, originalBytes - outputBytes);
+
+  if (savedBytes > 0 && seenFiles.size > 0) {
+    const representative = Array.from(seenFiles)[0];
+    if (representative) {
+      stats.addReadSavings(representative, originalBytes, outputBytes);
+      ctx.ui.notify(`ast-bro search: saved ~${formatBytesHuman(savedBytes)} of context`, "info");
+    }
+  }
 }
