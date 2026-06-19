@@ -1,0 +1,36 @@
+{
+  "name": "pi-ast-bro",
+  "version": "0.1.0",
+  "description": "Pi extension integrating the ast-bro CLI for AST-based context saving and pre-flight syntax checks.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest --run",
+    "typecheck": "tsc --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.8",
+    "@earendil-works/pi-tui": "^0.79.8",
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.8",
+    "@earendil-works/pi-tui": "^0.79.8",
+    "@types/node": "^24.12.4",
+    "typebox": "^1.1.38",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  },
+  "keywords": [
+    "pi-extension",
+    "ast-bro",
+    "ast"
+  ],
+  "license": "MIT"
+}

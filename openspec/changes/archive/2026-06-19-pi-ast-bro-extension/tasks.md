@@ -1,0 +1,41 @@
+# Tasks: pi-ast-bro Extension
+
+## Task List
+
+- [x] Task 1: Scaffolding
+  - Create the extension directory.
+  - Setup `package.json` with `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `@sinclair/typebox`.
+  - Export standard extension factory in `index.ts`.
+- [x] Task 2: Config and State Management
+  - Implement a persistent settings manager class mapping to `my-extension.json`.
+  - Create the session-level statistics tracking logic (Token Savings state).
+- [x] Task 3: The `/ast` CLI Command and Dashboard
+  - Register `/ast` command handling.
+  - Build TUI components combining Stats overview and toggles for settings variables. 
+- [x] Task 4: Startup Lifecycle & Auto-Installer
+  - Tap `session_start` to check binary availability (`spawnSync("which", ["ast-bro"])` or similar).
+  - Wire up `ctx.ui.confirm` for auto-installation.
+  - Implement execution of `ast-bro install` (if utilizing the CLI's native agent installer feature) or fallback shell commands upon user confirmation.
+- [x] Task 5: Context-Saver 'read' Interceptor
+  - Hook into `tool_call` on `read`.
+  - Apply logic gates (`fileSizeThresholdLines`, regex for extensions, absent offset variables).
+  - Pipe to `ast-bro context <path>` via node `child_process`.
+  - Inject the bypass reminder suffix for the agent.
+- [x] Task 6: Custom Tools Registration
+  - Build `pi.registerTool` definitions for `analyze_ast_impact`, `analyze_ast_map`, and `analyze_ast_search`.
+  - Bind execution block to spawn corresponding `ast-bro` CLI arguments.
+- [x] Task 7: Pre-Flight Syntax Middleware
+  - Tap `tool_result` on `edit` and `write`.
+  - Pipe affected file through `ast-bro map <path>`.
+  - Mutate result payload on syntax error.
+- [x] Task 8: Tool Bypass Mechanism (The 'Raw' Fallback)
+  - Ensure the `read` interceptor allows the LLM to read the original raw file if specific token-hints or variables (like limit/offset) are detected, preventing the LLM from getting stuck in an AST-only view.
+- [x] Task 9: Robustness and Fallback Wrap-up
+  - Validate crash resistance: wrap `spawnSync` calls in `try/catch`. 
+  - Ensure that if `ast-bro` hangs, throws a weird execution error, or panics, the interceptors silently fall back to yielding the original standard tool results.
+- [x] Task 10: Unit Testing (Vitest)
+  - Initialize `vitest` in the project root.
+  - Implement a mocked `ExtensionAPI` and `ctx` handler to test event subscriptions.
+  - Mock `node:child_process` (specifically `spawnSync`).
+  - Write test specs confirming that the `read` tool interceptor replaces the payload for large >300 line files.
+  - Write test specs confirming that the `edit` tool interceptor patches in `isError: true` when `ast-bro map` returns a syntax fault.
