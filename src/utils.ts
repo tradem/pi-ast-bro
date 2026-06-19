@@ -131,8 +131,31 @@ export function runAstBro(
   }
 }
 
+function getGitShortSha(): string | null {
+  try {
+    const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const result = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      stdio: "pipe",
+      timeout: 5_000,
+    });
+    if (result.status === 0 && result.stdout) {
+      const sha = result.stdout.trim().split("\n")[0];
+      return sha ?? null;
+    }
+  } catch {
+    // Not a git repository or git is unavailable.
+  }
+  return null;
+}
+
 /**
  * Read the extension version from package.json.
+ *
+ * In a development checkout the current git short SHA is appended as build
+ * metadata (e.g. `0.1.0-alpha.0+64f048b`). If package.json already contains
+ * build metadata (e.g. from a CI build step), it is returned as-is.
  *
  * Falls back to "unknown" when package.json cannot be read, so the TUI never
  * crashes because of a missing or malformed manifest.
@@ -141,7 +164,10 @@ export function getExtensionVersion(): string {
   try {
     const packagePath = join(dirname(fileURLToPath(import.meta.url)), "../package.json");
     const manifest = JSON.parse(readFileSync(packagePath, "utf-8")) as { version?: string };
-    return manifest.version ?? "unknown";
+    const baseVersion = manifest.version ?? "unknown";
+    if (baseVersion === "unknown" || baseVersion.includes("+")) return baseVersion;
+    const sha = getGitShortSha();
+    return sha ? `${baseVersion}+${sha}` : baseVersion;
   } catch {
     return "unknown";
   }
