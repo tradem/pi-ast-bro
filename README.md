@@ -113,9 +113,26 @@ Read lines 1 to 200 of src/main.rs in full.
 
 ### Refactoring workflow
 
-1. Call `analyze_ast_impact` on a file or symbol.
-2. Use the returned `exact_snippet` values as `edits[].oldText` for each change.
-3. If `attention_required` appears, rely on batch scripts (`ast-bro run`, `sed`, etc.) instead of manual edits.
+Both refactoring tools work on a **symbol**. For ambiguous symbols you can add an optional **file** to scope the lookup.
+
+1. Call `analyze_ast_impact` with a symbol name:
+
+   ```text
+   Show callers of make_ctx in backend/crates/core/src/character/aggregate.rs
+   ```
+
+   This passes `symbol: "make_ctx"` and `file: "backend/crates/core/src/character/aggregate.rs"` to `ast-bro impact`.
+
+2. Call `find_implementations` to discover trait/interface implementations:
+
+   ```text
+   Find implementations of Command
+   ```
+
+   This passes `symbol: "Command"` to `ast-bro implements`.
+
+3. Use the returned `exact_snippet` values as `edits[].oldText` for each change.
+4. If `attention_required` appears, rely on batch scripts (`ast-bro run`, `sed`, etc.) instead of manual edits.
 
 ### Settings
 

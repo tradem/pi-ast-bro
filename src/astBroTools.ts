@@ -1,18 +1,24 @@
 import { Type, type Static } from "typebox";
 import { readFileSync, statSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { spawnSync } from "node:child_process";
 import { formatBytesHuman, type StatsManager } from "./statsManager.js";
-import { isAstBroAvailable, isPathSafe, resolveExistingFilePath, runAstBro } from "./utils.js";
+import { isAstBroAvailable, isPathSafe, resolveExistingFilePath } from "./utils.js";
 
 /**
  * TypeBox schemas for the two AST refactoring tools.
+ *
+ * `ast-bro impact` / `ast-bro implements` operate on a *symbol*. The optional
+ * `file` path scopes ambiguous symbols, e.g. `src/lib.rs:make_ctx`.
  */
 export const AnalyzeAstImpactSchema = Type.Object({
-  path: Type.String({ description: "Path to the file or symbol to analyze" }),
+  symbol: Type.String({ description: "Symbol to analyze, e.g. make_ctx or Player.take_damage" }),
+  file: Type.Optional(Type.String({ description: "Optional file path to scope the symbol" })),
 });
 
 export const FindImplementationsSchema = Type.Object({
-  path: Type.String({ description: "Path to the interface or base class" }),
+  symbol: Type.String({ description: "Symbol of the interface, trait, or base class, e.g. Command" }),
+  file: Type.Optional(Type.String({ description: "Optional file path to scope the symbol" })),
 });
 
 export type AnalyzeAstImpactParams = Static<typeof AnalyzeAstImpactSchema>;
@@ -78,66 +84,187 @@ function parseJsonOutput(stdout: string): unknown | null {
   }
 }
 
-interface AugmentResult {
-  payload: unknown;
+interface SnippetMetrics {
   originalBytes: number;
   filesRead: number;
 }
 
-/**
- * For each match object that contains a valid file path and line number, resolve
- * the file against the agent's cwd, read the surrounding source block, and
- * attach it as `exact_snippet`.
- *
- * Results are hard-limited to {@link MAX_RESULTS}. If the input contains more
- * matches a top-level `attention_required` flag is added and the output is
- * wrapped in `{ results, attention_required }` to keep the JSON schema stable.
- */
-function augmentResult(parsed: unknown, cwd: string): AugmentResult {
-  if (!Array.isArray(parsed)) {
-    return { payload: parsed, originalBytes: 0, filesRead: 0 };
-  }
+function injectSnippet(match: AstMatch, cwd: string, seenFiles: Set<string>): SnippetMetrics {
+  const rawPath = getMatchFile(match)!;
+  const resolved = resolveExistingFilePath(cwd, rawPath);
 
+  if (!resolved) return { originalBytes: 0, filesRead: 0 };
+
+  const snippet = extractSnippet(resolved, match.line);
+  if (!snippet) return { originalBytes: 0, filesRead: 0 };
+
+  match.exact_snippet = snippet;
+
+  if (seenFiles.has(resolved)) return { originalBytes: 0, filesRead: 0 };
+  seenFiles.add(resolved);
+  return { originalBytes: getFileSizeBytes(resolved), filesRead: 1 };
+}
+
+interface AugmentArrayResult {
+  results: unknown[];
+  attention_required?: string;
+  originalBytes: number;
+  filesRead: number;
+  hadTruncation: boolean;
+}
+
+interface AugmentResult {
+  payload: unknown;
+  originalBytes: number;
+  filesRead: number;
+  hadTruncation: boolean;
+}
+
+function augmentArray(items: unknown[], cwd: string): AugmentArrayResult {
   const seenFiles = new Set<string>();
   let originalBytes = 0;
-  const augmented: Array<Record<string, unknown>> = [];
+  let filesRead = 0;
+  let hadTruncation = false;
+  const augmented: unknown[] = [];
 
-  for (let i = 0; i < Math.min(parsed.length, MAX_RESULTS); i++) {
-    const item = parsed[i];
-    const match = isValidMatch(item) ? item : null;
-    if (!match) {
+  for (let i = 0; i < Math.min(items.length, MAX_RESULTS); i++) {
+    const item = items[i];
+
+    if (isValidMatch(item)) {
+      const metrics = injectSnippet(item, cwd, seenFiles);
+      originalBytes += metrics.originalBytes;
+      filesRead += metrics.filesRead;
       augmented.push(item as Record<string, unknown>);
       continue;
     }
 
-    const rawPath = getMatchFile(match)!;
-    const resolved = resolveExistingFilePath(cwd, rawPath);
-
-    if (resolved) {
-      const snippet = extractSnippet(resolved, match.line);
-      if (snippet) {
-        (match as Record<string, unknown>).exact_snippet = snippet;
-        if (!seenFiles.has(resolved)) {
-          seenFiles.add(resolved);
-          originalBytes += getFileSizeBytes(resolved);
-        }
-      }
+    if (Array.isArray(item)) {
+      const nested = augmentArray(item, cwd);
+      augmented.push(nested.results);
+      originalBytes += nested.originalBytes;
+      filesRead += nested.filesRead;
+      if (nested.hadTruncation) hadTruncation = true;
+      continue;
     }
 
-    augmented.push(match as Record<string, unknown>);
+    if (typeof item === "object" && item !== null) {
+      const nested = augmentResult(item, cwd);
+      augmented.push(nested.payload);
+      originalBytes += nested.originalBytes;
+      filesRead += nested.filesRead;
+      if (nested.hadTruncation) hadTruncation = true;
+      continue;
+    }
+
+    augmented.push(item);
   }
 
-  const payload: Record<string, unknown> = { results: augmented };
-  if (parsed.length > MAX_RESULTS) {
-    payload.attention_required = `Truncated. ${parsed.length - MAX_RESULTS} additional elements omitted.`;
+  const result: AugmentArrayResult = {
+    results: augmented,
+    originalBytes,
+    filesRead,
+    hadTruncation,
+  };
+
+  if (items.length > MAX_RESULTS) {
+    result.attention_required = `Truncated. ${items.length - MAX_RESULTS} additional elements omitted.`;
+    result.hadTruncation = true;
   }
 
-  return { payload, originalBytes, filesRead: seenFiles.size };
+  return result;
+}
+
+/**
+ * Recursively walk the CLI JSON output. For every array of objects that
+ * contains `file`+`line` pairs, resolve the source file and attach an
+ * `exact_snippet`.
+ *
+ * Arrays are hard-limited to {@link MAX_RESULTS} entries. When an array is
+ * truncated a sibling `*_attention_required` key is added.
+ */
+function augmentResult(parsed: unknown, cwd: string): AugmentResult {
+  if (Array.isArray(parsed)) {
+    const aug = augmentArray(parsed, cwd);
+    const payload: Record<string, unknown> = { results: aug.results };
+    if (aug.attention_required) payload.attention_required = aug.attention_required;
+    return {
+      payload,
+      originalBytes: aug.originalBytes,
+      filesRead: aug.filesRead,
+      hadTruncation: aug.hadTruncation,
+    };
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return { payload: parsed, originalBytes: 0, filesRead: 0, hadTruncation: false };
+  }
+
+  const result: Record<string, unknown> = {};
+  let originalBytes = 0;
+  let filesRead = 0;
+  let hadTruncation = false;
+
+  for (const [key, value] of Object.entries(parsed)) {
+    if (Array.isArray(value)) {
+      const aug = augmentArray(value, cwd);
+      result[key] = aug.results;
+      originalBytes += aug.originalBytes;
+      filesRead += aug.filesRead;
+      if (aug.attention_required) {
+        result[`${key}_attention_required`] = aug.attention_required;
+        hadTruncation = true;
+      }
+    } else if (typeof value === "object" && value !== null) {
+      const nested = augmentResult(value, cwd);
+      result[key] = nested.payload;
+      originalBytes += nested.originalBytes;
+      filesRead += nested.filesRead;
+      if (nested.hadTruncation) hadTruncation = true;
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return { payload: result, originalBytes, filesRead, hadTruncation };
+}
+
+/**
+ * Build the positional target accepted by `ast-bro impact` / `implements`:
+ * `symbol` or `file:symbol`.
+ */
+function buildTarget(symbol: string, file?: string): string {
+  if (!isPathSafe(symbol)) return "";
+  if (file && !isPathSafe(file)) return "";
+  return file ? `${file}:${symbol}` : symbol;
+}
+
+/**
+ * Run an `ast-bro` refactoring subcommand with JSON output enabled.
+ */
+function runAstBroRefactor(
+  subcommand: AstRefactorCommand,
+  target: string,
+): { status: number | null; stdout: string; stderr: string } | null {
+  try {
+    const result = spawnSync("ast-bro", [subcommand, "--json", target], {
+      encoding: "utf-8",
+      stdio: "pipe",
+      timeout: 60_000,
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function executeAstBroRefactorTool(
   subcommand: AstRefactorCommand,
-  target: string,
+  symbol: string,
+  file: string | undefined,
   ctx: ExtensionContext,
   stats?: StatsManager,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean; details: { exitCode: number | null } }> {
@@ -149,15 +276,16 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  if (!isPathSafe(target)) {
+  const target = buildTarget(symbol, file);
+  if (!target) {
     return {
-      content: [{ type: "text", text: "Invalid or unsafe file path." }],
+      content: [{ type: "text", text: "Invalid or unsafe symbol/file path." }],
       isError: true,
       details: { exitCode: null },
     };
   }
 
-  const result = runAstBro(subcommand, target);
+  const result = runAstBroRefactor(subcommand, target);
   if (!result) {
     return {
       content: [{ type: "text", text: `Failed to run ast-bro ${subcommand}.` }],
@@ -179,7 +307,7 @@ export async function executeAstBroRefactorTool(
 
   // If the CLI did not emit JSON, fall back to the raw text output so existing
   // behaviour and non-JSON CLI versions keep working.
-  if (parsed === null || !Array.isArray(parsed)) {
+  if (parsed === null) {
     return {
       content: [{ type: "text", text: stdout || result.stderr }],
       isError: false,
@@ -215,10 +343,10 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
     name: "analyze_ast_impact",
     label: "AST Impact",
     description:
-      "Cross-file impact analysis: traces callers, callees, and reverse-deps. Returns JSON with exact source snippets for safe edits.",
+      "Cross-file impact analysis: traces callers, callees, and reverse-deps for a symbol. Returns JSON with exact source snippets for safe edits. Pass the symbol name and optionally a file path to disambiguate (file:symbol).",
     parameters: AnalyzeAstImpactSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      return executeAstBroRefactorTool("impact", params.path, ctx, stats);
+      return executeAstBroRefactorTool("impact", params.symbol, params.file, ctx, stats);
     },
   });
 
@@ -226,10 +354,10 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
     name: "find_implementations",
     label: "Find Implementations",
     description:
-      "Find interface implementations and derived classes. Returns JSON with exact source snippets for safe edits.",
+      "Find interface implementations, trait implementations, and derived classes for a symbol. Returns JSON with exact source snippets for safe edits.",
     parameters: FindImplementationsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      return executeAstBroRefactorTool("implements", params.path, ctx, stats);
+      return executeAstBroRefactorTool("implements", params.symbol, params.file, ctx, stats);
     },
   });
 }

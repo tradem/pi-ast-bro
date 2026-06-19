@@ -417,9 +417,9 @@ describe("pi-ast-bro extension", () => {
       });
 
       const impactTool = pi.registeredTools.find((t) => t.name === "analyze_ast_impact")!;
-      const result = await impactTool.execute("tc", { path: "src/lib.rs" }, new AbortController().signal, undefined, createMockContext());
+      const result = await impactTool.execute("tc", { symbol: "make_ctx", file: "src/lib.rs" }, new AbortController().signal, undefined, createMockContext());
 
-      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["impact", "src/lib.rs"], expect.any(Object));
+      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["impact", "--json", "src/lib.rs:make_ctx"], expect.any(Object));
       const typedResult = result as unknown as { content: Array<{ type: string; text: string }>; isError: boolean };
       expect(typedResult.content[0].text).toContain("impact result");
       expect(typedResult.isError).toBe(false);
