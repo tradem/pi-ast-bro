@@ -134,7 +134,7 @@ Both refactoring tools work on a **symbol**. For ambiguous symbols you can add a
 3. Use the returned `exact_snippet` values as `edits[].oldText` for each change.
 4. If `attention_required` appears, rely on batch scripts (`ast-bro run`, `sed`, etc.) instead of manual edits.
 
-**Ambiguous trait methods** like `to_string` are defined on many types. Either qualify them with a concrete type (`ProjectId.to_string`) or use `analyze_ast_search` first to find the relevant call sites.
+**Ambiguous standard-library / built-in symbols** like `to_string`, `clone`, or `str.upper` are defined on many types. Either qualify them with a concrete type (`ProjectId.to_string`) or use `analyze_ast_search` first to find the relevant call sites.
 
 ### Settings
 

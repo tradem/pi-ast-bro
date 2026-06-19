@@ -329,7 +329,7 @@ export async function executeAstBroRefactorTool(
   if (result.status !== 0) {
     const output = result.stdout || result.stderr || `ast-bro ${subcommand} failed.`;
     const hint = output.includes("no symbol matches")
-      ? "\n\nHint: ambiguous or std-trait methods (e.g. to_string, clone) cannot always be resolved by ast-bro. Try analyze_ast_search with the method name instead."
+      ? "\n\nHint: ambiguous symbols that live in the language standard library or built-in types (e.g. to_string, clone, str.upper) cannot always be resolved by ast-bro. Try analyze_ast_search with the method name instead."
       : "";
     return {
       content: [{ type: "text", text: output + hint }],
@@ -385,7 +385,7 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
       "Use this tool when the user asks for callers, callees, or impact of a symbol.",
       "Prefer it over bash/rg/grep for AST-accurate caller analysis.",
       "Pass the bare symbol name and, if ambiguous, the file path that defines it.",
-      "Do not use this tool for std trait methods like to_string or clone; ast-bro cannot resolve them. Use analyze_ast_search instead.",
+      "Do not use this tool for ambiguous symbols defined in the language standard library or built-in types (e.g. to_string/clone, ToString, str.upper); ast-bro may fail to resolve them. Use analyze_ast_search instead.",
     ],
     parameters: AnalyzeAstImpactSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
