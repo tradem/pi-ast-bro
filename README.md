@@ -18,7 +18,7 @@ Whatever `ast-bro` supports. By default the extension intercepts:
 - `.cs` (C#)
 - `.ts`, `.tsx` (TypeScript)
 - `.py` (Python)
-- `.dart` (Dart)
+-  ~~`.dart` (Dart)~~
 
 You can change, add, or remove extensions in the dashboard or in the settings file.
 
