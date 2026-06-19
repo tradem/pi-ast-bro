@@ -1,9 +1,14 @@
 #!/usr/bin/env node
+#!/usr/bin/env node
 /**
- * Compute a semver-compatible pre-release version from git metadata and write
- * it to package.json and package-lock.json.
+ * Compute a semver-compatible pre-release version from the current git HEAD
+ * and write it to package.json and package-lock.json.
  *
- * Format: <base>-alpha.<commit-count>+<short-sha>
+ * Intended for CI / build-time use. The source package.json stays at a stable
+ * base version; this script stamps the running artifacts with the exact commit
+ * SHA so the TUI can display it.
+ *
+ * Format: 0.1.0-alpha.0+<short-sha>
  *
  * Run manually:
  *   node scripts/update-version.js
@@ -17,7 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const BASE_VERSION = "0.1.0";
+const BASE_VERSION = "0.1.0-alpha.0";
 
 function runGit(args) {
   return execSync(`git ${args}`, {
@@ -36,9 +41,8 @@ function writeJson(path, data) {
 }
 
 function main() {
-  const commitCount = runGit("rev-list --count HEAD");
   const shortSha = runGit("rev-parse --short HEAD");
-  const version = `${BASE_VERSION}-alpha.${commitCount}+${shortSha}`;
+  const version = `${BASE_VERSION}+${shortSha}`;
 
   const packageJsonPath = join(ROOT, "package.json");
   const packageJson = readJson(packageJsonPath);
