@@ -16,18 +16,7 @@ import { registerAstCommand, registerAstGainCommand } from "./tui.js";
 import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
 import { getAstBroInfo, satisfiesSemver } from "./utils.js";
-
-const SUPPORTED_PI_RANGE = "^0.79.8";
-const SUPPORTED_AST_BRO_RANGE = ">=0.1.0"; // Adjust when ast-bro API requirements are known.
-
-/**
- * Check whether the running pi-coding-agent version satisfies the supported
- * caret range. For 0.x versions a caret range is strict on the minor version,
- * so ^0.79.8 accepts >= 0.79.8 and < 0.80.0.
- */
-function isPiVersionSupported(version: string): boolean {
-  return satisfiesSemver(version, SUPPORTED_PI_RANGE);
-}
+import { SUPPORTED_AST_BRO_RANGE, SUPPORTED_PI_RANGE } from "./constants.js";
 
 /**
  * pi-ast-bro Extension
@@ -40,6 +29,16 @@ function isPiVersionSupported(version: string): boolean {
  *  - Persistent `/ast-gain` statistics
  */
 export default function piAstBroExtension(pi: ExtensionAPI): void {
+  try {
+    initializeExtension(pi);
+  } catch (err) {
+    console.error(
+      `pi-ast-bro: failed to initialize extension (${(err as Error).message}). Extension disabled.`,
+    );
+  }
+}
+
+function initializeExtension(pi: ExtensionAPI): void {
   const settings = new SettingsManager();
   const stats = new StatsManager("");
 
@@ -70,21 +69,15 @@ export default function piAstBroExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    if (!isPiVersionSupported(VERSION)) {
-      const message = `pi-ast-bro: incompatible pi-coding-agent version (${VERSION}). Expected ${SUPPORTED_PI_RANGE}. Extension disabled.`;
+    if (!satisfiesSemver(VERSION, SUPPORTED_PI_RANGE)) {
       try {
-        ctx.ui.notify(message, "error");
+        ctx.ui.notify(
+          `pi-ast-bro: pi-coding-agent ${VERSION} is outside the tested range (${SUPPORTED_PI_RANGE}). Some features may not work as expected.`,
+          "warning",
+        );
       } catch {
-        // UI may differ in incompatible versions; ignore notification failures.
+        // Notification may fail in very new pi versions; the extension still tries to load.
       }
-      try {
-        const config = await settings.load(ctx.cwd);
-        config.enabled = false;
-        await settings.save(ctx.cwd, config);
-      } catch {
-        // Ignore settings errors in incompatible environments.
-      }
-      return;
     }
 
     stats.setCwd(ctx.cwd);

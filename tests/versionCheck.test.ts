@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 vi.mock("@earendil-works/pi-coding-agent", async () => {
   const actual = await vi.importActual<typeof import("@earendil-works/pi-coding-agent")>(
@@ -61,8 +62,16 @@ describe("pi version compatibility check", () => {
     vi.resetAllMocks();
   });
 
-  it("disables the extension and notifies the user when pi-coding-agent version is incompatible", async () => {
-    vi.mocked(writeFileSync).mockImplementation(() => undefined);
+  it("warns but keeps running when pi-coding-agent version is outside the tested range", async () => {
+    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "--version") {
+        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      if (command === "which" && args?.[0] === "ast-bro") {
+        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
 
     const pi = createMockPi();
     extensionFactory(pi);
@@ -72,14 +81,13 @@ describe("pi version compatibility check", () => {
     await sessionHandler({}, ctx);
 
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("incompatible pi-coding-agent version (0.80.0)"),
-      "error",
+      expect.stringContaining("pi-coding-agent 0.80.0 is outside the tested range"),
+      "warning",
     );
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Expected ^0.79.8"), "error");
-    expect(writeFileSync).toHaveBeenCalled();
-    const writtenSettings = JSON.parse(
-      (vi.mocked(writeFileSync).mock.calls[0] as [string, string])[1],
-    ) as { enabled: boolean };
-    expect(writtenSettings.enabled).toBe(false);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("ast-bro detected"),
+      "info",
+    );
+    expect(writeFileSync).not.toHaveBeenCalled();
   });
 });
