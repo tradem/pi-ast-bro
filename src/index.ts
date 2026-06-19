@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +16,32 @@ import { registerAstCommand, registerAstGainCommand } from "./tui.js";
 import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
 import { isAstBroAvailable } from "./utils.js";
+
+const SUPPORTED_PI_RANGE = "^0.79.8";
+
+/**
+ * Check whether the running pi-coding-agent version satisfies the supported
+ * caret range. For 0.x versions a caret range is strict on the minor version,
+ * so ^0.79.8 accepts >= 0.79.8 and < 0.80.0.
+ */
+function isPiVersionSupported(version: string): boolean {
+  const base = SUPPORTED_PI_RANGE.replace(/^\^/, "");
+  const [vMajor, vMinor, vPatch] = version.split(".").map((p) => Number.parseInt(p, 10));
+  const [rMajor, rMinor, rPatch] = base.split(".").map((p) => Number.parseInt(p, 10));
+
+  if (Number.isNaN(vMajor) || Number.isNaN(rMajor)) return false;
+  if (vMajor !== rMajor) return false;
+
+  if (vMajor === 0) {
+    if (vMinor !== rMinor) return false;
+    if (vPatch < rPatch) return false;
+    return true;
+  }
+
+  if (vMinor < rMinor) return false;
+  if (vMinor === rMinor && vPatch < rPatch) return false;
+  return true;
+}
 
 /**
  * pi-ast-bro Extension
@@ -57,6 +84,23 @@ export default function piAstBroExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    if (!isPiVersionSupported(VERSION)) {
+      const message = `pi-ast-bro: incompatible pi-coding-agent version (${VERSION}). Expected ${SUPPORTED_PI_RANGE}. Extension disabled.`;
+      try {
+        ctx.ui.notify(message, "error");
+      } catch {
+        // UI may differ in incompatible versions; ignore notification failures.
+      }
+      try {
+        const config = await settings.load(ctx.cwd);
+        config.enabled = false;
+        await settings.save(ctx.cwd, config);
+      } catch {
+        // Ignore settings errors in incompatible environments.
+      }
+      return;
+    }
+
     stats.setCwd(ctx.cwd);
     const config = await settings.load(ctx.cwd);
     if (!config.enabled) return;
