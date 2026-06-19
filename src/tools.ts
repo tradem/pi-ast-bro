@@ -94,13 +94,23 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
   pi.registerTool({
     name: "analyze_ast_search",
     label: "AST Search",
-    description: "Hybrid search over the repository based on syntax and text.",
+    promptSnippet: "analyze_ast_search(query, top_k?) — hybrid BM25 + semantic repo search",
+    description:
+      "Hybrid BM25 + semantic search over the repository based on syntax and text. Returns the most relevant locations for a query or symbol name.",
+    promptGuidelines: [
+      "Use this tool when the user asks to search, find, or locate code patterns, symbols, or call sites.",
+      "Prefer it over bash/rg/grep unless the user explicitly asks for a shell-based search.",
+      "If many results are expected, pass a higher top_k (up to 100).",
+    ],
     parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
+      query: Type.String({ description: "Search query or symbol name" }),
+      top_k: Type.Optional(
+        Type.Number({ description: "Maximum number of results (default 10, max 100)", minimum: 1, maximum: 100 }),
+      ),
     }),
     async execute(
       _toolCallId: string,
-      params: { query: string },
+      params: { query: string; top_k?: number },
       _signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
@@ -113,7 +123,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
         };
       }
 
-      const result = runAstBroSearch(params.query);
+      const result = runAstBroSearch(params.query, { topK: params.top_k });
       if (!result) {
         return {
           content: [{ type: "text", text: "Failed to run ast-bro search." }],

@@ -32,8 +32,6 @@ export function getAstBroInfo(): AstBroInfo {
     return { available: false };
   }
 
-  // Try to resolve the absolute path via `which`. This is best-effort: some
-  // minimal containers may not ship `which`, but the binary can still be usable.
   let path: string | undefined;
   try {
     const whichResult = spawnSync("which", ["ast-bro"], {
@@ -45,7 +43,7 @@ export function getAstBroInfo(): AstBroInfo {
       path = whichResult.stdout.trim().split("\n")[0];
     }
   } catch {
-    // `which` is not available; we still report the binary as usable.
+    // `which` may be unavailable; fall back to just knowing availability/version.
   }
 
   return { available, version, path };
@@ -98,8 +96,7 @@ export function isPathSafe(filePath: string): boolean {
   if (filePath.length === 0) return false;
   if (filePath.includes("\0")) return false;
 
-  // Reject common shell metacharacters and control characters.
-  const dangerous = /[;|&$`<>\r\n]/;
+  const dangerous = /[;|&$`<>\u000D\u000A]/;
   if (dangerous.test(filePath)) return false;
 
   return true;
@@ -138,15 +135,24 @@ export function runAstBro(
  *
  * Commands that take a query instead of a path use this helper.
  */
-export function runAstBroSearch(query: string): { status: number | null; stdout: string; stderr: string } | null {
+export function runAstBroSearch(
+  query: string,
+  options?: { topK?: number },
+): { status: number | null; stdout: string; stderr: string } | null {
   if (typeof query !== "string" || query.length === 0) return null;
-  // Reject query strings that attempt shell injection even though spawnSync
-  // uses an argument array.
-  const dangerous = /[;|&$`<>\r\n\0]/;
+
+  const dangerous = /[;|&$`<>\u000D\u000A\u0000]/;
   if (dangerous.test(query)) return null;
 
+  const topK = options?.topK;
+  const args = ["search"];
+  if (typeof topK === "number" && topK > 0) {
+    args.push("--top-k", String(topK));
+  }
+  args.push(query);
+
   try {
-    const result = spawnSync("ast-bro", ["search", query], {
+    const result = spawnSync("ast-bro", args, {
       encoding: "utf-8",
       stdio: "pipe",
       timeout: 30_000,
