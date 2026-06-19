@@ -55,6 +55,17 @@ ln -s /path/to/pi-ast-bro ~/.pi/agent/extensions/pi-ast-bro
 
 Then start Pi normally from any project.
 
+#### Option A: Install via `pi install`
+
+If the package is published to GitHub, you can install it directly through Pi:
+
+```bash
+pi install git:github.com/tradem/pi-ast-bro
+```
+
+Then restart Pi or run `/reload`. Pi will read the `pi.extensions` entry from `package.json` and load the extension automatically.
+
+
 #### Option B: Project-local extension
 
 Inside the project where you want to use it:
@@ -73,15 +84,6 @@ cd /path/to/pi-ast-bro
 pi -e ./src/index.ts
 ```
 
-#### Option D: Install via `pi install`
-
-If the package is published to GitHub, you can install it directly through Pi:
-
-```bash
-pi install git:github.com/tradem/pi-ast-bro
-```
-
-Then restart Pi or run `/reload`. Pi will read the `pi.extensions` entry from `package.json` and load the extension automatically.
 
 ### 3. Verify
 
@@ -104,7 +106,7 @@ You should see the dashboard with:
 Prompts that only need structure and signatures work best with the AST summary:
 
 ```text
-Erkläre mir den DD Core Bounded Context anhand der AST-Struktur und Signaturen.
+Explain the  DD Core Bounded Context by zsuhbg AST-stucture and signatures.
 ```
 
 ### Force raw source
