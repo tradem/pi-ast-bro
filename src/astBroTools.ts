@@ -374,12 +374,14 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
   pi.registerTool({
     name: "analyze_ast_impact",
     label: "AST Impact",
+    promptSnippet: "analyze_ast_impact(symbol, file?) — AST-accurate caller/callee/impact analysis with exact snippets",
     description:
-      "Cross-file impact analysis: traces callers, callees, and reverse-deps for a symbol. Returns JSON with exact source snippets for safe edits. Pass the symbol name and optionally a file path to disambiguate (file:symbol).",
+      "Cross-file impact analysis: traces callers, callees, and reverse-deps for a symbol. Returns JSON with exact source snippets for safe edits. Pass the symbol name and optionally a file path to disambiguate. For trait methods like to_string use a type-qualified symbol (e.g. ProjectId.to_string) or fall back to analyze_ast_search.",
     promptGuidelines: [
       "Use this tool when the user asks for callers, callees, or impact of a symbol.",
       "Prefer it over bash/rg/grep for AST-accurate caller analysis.",
       "Pass the bare symbol name and, if ambiguous, the file path that defines it.",
+      "If the symbol is a trait method and ambiguous, use analyze_ast_search or qualify it with a concrete type.",
     ],
     parameters: AnalyzeAstImpactSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -390,6 +392,7 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
   pi.registerTool({
     name: "find_implementations",
     label: "Find Implementations",
+    promptSnippet: "find_implementations(symbol, file?) — find trait/interface/base-class implementations with exact snippets",
     description:
       "Find interface implementations, trait implementations, and derived classes for a symbol. Returns JSON with exact source snippets for safe edits.",
     promptGuidelines: [
