@@ -13,13 +13,21 @@ export const SettingsSchema = Type.Object(
   {
     enabled: Type.Boolean({ default: true }),
     supportedExtensions: Type.Array(Type.String(), {
-      default: [".rs", ".cs", ".ts", ".tsx", ".py", ".dart"],
+      default: [".rs", ".cs", ".ts", ".tsx", ".py"],
     }),
     fileSizeThresholdLines: Type.Number({
       default: 500,
       minimum: 1,
     }),
     enablePreFlightSyntaxChecks: Type.Boolean({ default: true }),
+    graphMaxEdges: Type.Number({
+      default: 500,
+      minimum: 1,
+    }),
+    contextDefaultBudget: Type.Number({
+      default: 4000,
+      minimum: 500,
+    }),
   },
   { additionalProperties: false },
 );
@@ -32,9 +40,11 @@ export class SettingsManager {
   getDefaults(): Settings {
     return {
       enabled: true,
-      supportedExtensions: [".rs", ".cs", ".ts", ".tsx", ".py", ".dart"],
+      supportedExtensions: [".rs", ".cs", ".ts", ".tsx", ".py"],
       fileSizeThresholdLines: 500,
       enablePreFlightSyntaxChecks: true,
+      graphMaxEdges: 500,
+      contextDefaultBudget: 4000,
     };
   }
 
@@ -88,6 +98,14 @@ export class SettingsManager {
         typeof p.enablePreFlightSyntaxChecks === "boolean"
           ? p.enablePreFlightSyntaxChecks
           : defaults.enablePreFlightSyntaxChecks,
+      graphMaxEdges:
+        typeof p.graphMaxEdges === "number" && p.graphMaxEdges >= 1
+          ? p.graphMaxEdges
+          : defaults.graphMaxEdges,
+      contextDefaultBudget:
+        typeof p.contextDefaultBudget === "number" && p.contextDefaultBudget >= 500
+          ? p.contextDefaultBudget
+          : defaults.contextDefaultBudget,
     };
   }
 }

@@ -5,6 +5,46 @@ import type { Settings, SettingsManager } from "./config.js";
 import { formatBytesHuman, formatTokens, relativePath, type StatsManager } from "./statsManager.js";
 import { getAstBroInfo } from "./utils.js";
 
+interface NumberPreset {
+  value: number;
+  label: string;
+}
+
+const CONTEXT_BUDGET_PRESETS: NumberPreset[] = [
+  { value: 1000, label: "1000 — compact context" },
+  { value: 2000, label: "2000 — lean context" },
+  { value: 4000, label: "4000 — standard context" },
+  { value: 8000, label: "8000 — detailed context" },
+  { value: 16000, label: "16000 — deep context" },
+];
+
+const GRAPH_MAX_EDGES_PRESETS: NumberPreset[] = [
+  { value: 100, label: "100 — minimal graph" },
+  { value: 250, label: "250 — small graph" },
+  { value: 500, label: "500 — balanced graph" },
+  { value: 1000, label: "1000 — large graph" },
+  { value: 2500, label: "2500 — very large graph" },
+];
+
+function parsePresetLabel(label: string): number {
+  const match = label.match(/^(\d+)/);
+  return match ? Number.parseInt(match[1], 10) : 0;
+}
+
+function formatPreset(presets: NumberPreset[], value: number): string {
+  const preset = presets.find((p) => p.value === value);
+  return preset ? preset.label : `${value} — custom`;
+}
+
+function presetValues(presets: NumberPreset[], currentValue: number): string[] {
+  const labels = presets.map((p) => p.label);
+  const currentLabel = formatPreset(presets, currentValue);
+  if (!labels.includes(currentLabel)) {
+    labels.push(currentLabel);
+  }
+  return labels;
+}
+
 /**
  * Register the `/ast` interactive command.
  *
@@ -74,6 +114,18 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
             currentValue: String(mutableSettings.fileSizeThresholdLines),
             values: ["100", "200", "300", "500", "1000"],
           },
+          {
+            id: "contextDefaultBudget",
+            label: "Context budget (tokens)",
+            currentValue: formatPreset(CONTEXT_BUDGET_PRESETS, mutableSettings.contextDefaultBudget),
+            values: presetValues(CONTEXT_BUDGET_PRESETS, mutableSettings.contextDefaultBudget),
+          },
+          {
+            id: "graphMaxEdges",
+            label: "Graph edge limit",
+            currentValue: formatPreset(GRAPH_MAX_EDGES_PRESETS, mutableSettings.graphMaxEdges),
+            values: presetValues(GRAPH_MAX_EDGES_PRESETS, mutableSettings.graphMaxEdges),
+          },
         ];
 
         const settingsList = new SettingsList(
@@ -90,6 +142,12 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
                 break;
               case "threshold":
                 mutableSettings.fileSizeThresholdLines = Number.parseInt(newValue, 10);
+                break;
+              case "contextDefaultBudget":
+                mutableSettings.contextDefaultBudget = parsePresetLabel(newValue);
+                break;
+              case "graphMaxEdges":
+                mutableSettings.graphMaxEdges = parsePresetLabel(newValue);
                 break;
             }
             await settings.save(ctx.cwd, mutableSettings);

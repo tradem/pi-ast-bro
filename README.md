@@ -4,27 +4,34 @@ A [Pi](https://pi.dev) extension that integrates the [`ast-bro`](https://github.
 
 ## Features
 
-- **AST-powered read interception**  
-  Large source files (> 500 lines by default) are transparently replaced with an `ast-bro map` outline when the agent calls `read` without explicit `limit`/`offset`.
+| Capability | What it does | Best used for | Key inputs / settings |
+|---|---|---|---|
+| **Read interception** | Replaces large file reads with an `ast-bro map` outline when no `limit`/`offset` is given. | Skipping token-heavy whole-file reads. | Triggered by `read`; threshold: `fileSizeThresholdLines` (default 500). |
+| **`analyze_ast_graph`** | Returns a compact file/module dependency graph. | Architecture, coupling, and module-relationship questions. | `path` (optional, defaults to cwd); capped by `graphMaxEdges` (default 500). |
+| **`analyze_ast_map`** | Extracts a hierarchical AST block of a symbol or file. | Understanding the structure of a file or symbol. | `path` |
+| **`analyze_ast_context`** | Returns token-budgeted focused context for a symbol or file. | "How does this symbol/file work?" before falling back to `read`. | `path` (required), `target` (optional), `budget` (optional; default from `contextDefaultBudget`, 4000). |
+| **`analyze_ast_search`** | Hybrid BM25 + semantic search. | Finding symbols, patterns, or call sites. | `query`, `top_k` (1–100), `mode` (`"snippets"` or `"summary"`). |
+| **`analyze_ast_impact`** | Cross-file caller/callee/impact analysis with exact source snippets. | Refactoring: finding who calls a symbol. | `symbol`, `file` (optional) |
+| **`find_implementations`** | Finds trait/interface/base-class implementations. | Refactoring: discovering implementers. | `symbol`, `file` (optional) |
+| **`/ast-bro-architecture` skill** | Bundled skill with an AST-first decision tree and workflow. | Architecture, bounded-context, and aggregate questions. | — |
+| **`/ast-bro-refactor` skill** | Bundled skill enforcing the exact-snippet workflow. | Safe, whitespace-accurate refactoring. | — |
+| **Pre-flight syntax checks** | Runs `ast-bro map` after `edit`/`write` and marks syntax errors immediately. | Catching broken code before it propagates. | Toggle: `enablePreFlightSyntaxChecks` |
+| **Persistent gain tracking** | Tracks bytes saved, intercepts, and caught errors in `stats.json`. | Seeing the impact of AST-based shortcuts. | View with `/ast-gain` |
+| **Interactive dashboards** | `/ast` for live settings and stats; `/ast-gain` for lifetime high-scores. | Tuning behavior and reviewing savings. | — |
 
-- **Exact-match refactoring support**  
-  The dedicated tools `analyze_ast_impact` and `find_implementations` wrap `ast-bro impact`/`implements` and inject an `exact_snippet` around every matched line. Use that snippet directly as `edits[].oldText` for safe, whitespace-accurate replacements.
+### Agent decision tree
 
-- **Result safety cut-off**  
-  If a query returns more than 50 matches, the output is truncated and an `attention_required` flag is added so the agent can fall back to a scripted transformation instead of looping through endless individual edits.
+The extension embeds an AST-first decision tree in tool metadata and the `/ast-bro-architecture` skill:
 
-- **Pre-flight syntax checks**  
-  After `edit` or `write`, the changed file is parsed with `ast-bro map`. If parsing fails, the tool result is marked as an error so the agent can fix the syntax immediately.
+| Question type | Start with | Then | Finally |
+|---|---|---|---|
+| Architecture / module relationships | `analyze_ast_graph` | `analyze_ast_map` on key modules | Targeted `read` for business-rule details |
+| Where is a symbol used? | `analyze_ast_impact` | `analyze_ast_search` (use `mode: summary` for many hits) | Targeted `read` |
+| Trait / interface implementations | `find_implementations` | `analyze_ast_context` on results | Targeted `read` |
+| How does a symbol/file work? | `analyze_ast_context` | `analyze_ast_search` (summary mode) | Targeted `read` |
+| Locate a pattern or name | `analyze_ast_search` | `analyze_ast_context` or `read` with `offset`/`limit` | — |
 
-- **Refactoring skill**  
-  The bundled `/ast-bro-refactor` skill guides the agent through the refactoring workflow and enforces the rule to only use `exact_snippet` values for exact-match edits.
-
-- **Persistent gain tracking**  
-  Bytes saved, intercepted reads, caught pre-flight syntax errors, and explicit `analyze_ast_map` calls are persisted across sessions in `.pi/plugins/ast-bro/stats.json`.
-
-- **Interactive dashboards**  
-  - `/ast` — session stats, `ast-bro` availability, and live toggles for settings.  
-  - `/ast-gain` — retro high-score style dashboard with lifetime savings and recent activity.
+> **Reflection rule:** Before calling `read` on more than two files for a structural question, prefer `analyze_ast_graph`, `analyze_ast_map`, or `analyze_ast_search` first.
 
 ## Supported languages
 
@@ -35,7 +42,7 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 - `.ts`, `.tsx` (TypeScript)
 - `.py` (Python)
 
-You can change, add, or remove extensions in the `/ast` dashboard or in the settings file.
+`.dart` is no longer enabled by default because `ast-bro` requires local configuration for Dart support. You can add it back (or any other extension `ast-bro` handles) in the `/ast` dashboard or in the settings file.
 
 ## Installation
 
@@ -95,6 +102,38 @@ Run `/ast-gain` to see persistent lifetime stats (tokens saved, intercepts, caug
 
 ## Usage
 
+### Architecture and relationship questions
+
+Start with the graph and map pilots before reading individual files:
+
+```text
+Show me the module dependencies in backend/crates/core
+```
+
+This calls `analyze_ast_graph` on `backend/crates/core`. If the result is
+truncated, raise `graphMaxEdges` in `/ast` or narrow the path.
+
+For "how does this symbol work?" questions, use context first:
+
+```text
+How does CostumeAggregate work in backend/crates/core?
+```
+
+This calls `analyze_ast_context` with `target: "CostumeAggregate"` and falls
+back to targeted `read` only when exact source is needed.
+
+### Search in summary mode
+
+When scanning many files, ask for the compact grouped map:
+
+```text
+Search for character_id across the repo and give me a summary of hits
+```
+
+This calls `analyze_ast_search` with `mode: summary` and returns a JSON object
+with `total_hits`, `files`, `hit_count`, and ordered `ranges` such as `["42-55",
+"160-190"]`.
+
 ### Ask for high-level explanations
 
 Prompts that only need structure and signatures work best with the AST summary:
@@ -138,11 +177,16 @@ Both refactoring tools work on a **symbol**. For ambiguous symbols you can add a
 
 ### Settings
 
-Settings are stored per project at:
+Settings are stored per project at `.pi/plugins/ast-bro/settings.json` and edited interactively via `/ast`.
 
-```text
-.pi/plugins/ast-bro/settings.json
-```
+| Setting | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch for AST interceptors. |
+| `supportedExtensions` | `[".rs", ".cs", ".ts", ".tsx", ".py"]` | File extensions that trigger read interception. |
+| `fileSizeThresholdLines` | `500` | Line threshold above which a large file read is replaced by an AST map. |
+| `enablePreFlightSyntaxChecks` | `true` | Run `ast-bro map` after edits/writes and mark the result as an error on failure. |
+| `graphMaxEdges` | `500` | Maximum edges returned by `analyze_ast_graph`; larger graphs are truncated. |
+| `contextDefaultBudget` | `4000` | Default token budget for `analyze_ast_context`. |
 
 Example:
 
@@ -151,11 +195,11 @@ Example:
   "enabled": true,
   "supportedExtensions": [".rs", ".cs", ".ts", ".tsx", ".py"],
   "fileSizeThresholdLines": 500,
-  "enablePreFlightSyntaxChecks": true
+  "enablePreFlightSyntaxChecks": true,
+  "graphMaxEdges": 500,
+  "contextDefaultBudget": 4000
 }
 ```
-
-You can also edit these values interactively with `/ast`.
 
 ## Documentation
 

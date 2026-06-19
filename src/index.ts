@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SettingsManager } from "./config.js";
+import { registerAstContextTool } from "./astContextPilot.js";
+import { registerAstGraphTool } from "./astGraphPilot.js";
 import {
   registerEditInterceptor,
   registerReadInterceptor,
@@ -32,12 +34,17 @@ export default function piAstBroExtension(pi: ExtensionAPI): void {
   // are available regardless of whether the binary is installed.
   registerRefactoringTools(pi, stats);
   registerAstTools(pi, stats);
+  registerAstContextTool(pi, settings);
+  registerAstGraphTool(pi, settings);
   registerAstCommand(pi, settings, stats);
 
   const extensionDir = dirname(fileURLToPath(import.meta.url));
   pi.on("resources_discover", () => {
     return {
-      skillPaths: [join(extensionDir, "../skills/ast-bro-refactor/SKILL.md")],
+      skillPaths: [
+        join(extensionDir, "../skills/ast-bro-refactor/SKILL.md"),
+        join(extensionDir, "../skills/ast-bro-architecture/SKILL.md"),
+      ],
     };
   });
   registerAstGainCommand(pi, stats);

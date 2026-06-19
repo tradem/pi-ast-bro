@@ -95,6 +95,8 @@ describe("pi-ast-bro extension", () => {
       expect(pi.handlers["tool_result"]).toHaveLength(3); // read fallback + view_file fallback + edit/write
       expect(pi.handlers["session_start"]).toHaveLength(1);
       expect(pi.registeredTools.map((t) => t.name).sort()).toEqual([
+        "analyze_ast_context",
+        "analyze_ast_graph",
         "analyze_ast_impact",
         "analyze_ast_map",
         "analyze_ast_search",
@@ -132,6 +134,20 @@ describe("pi-ast-bro extension", () => {
       );
       expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["install"], expect.any(Object));
       expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro installed successfully", "info");
+    });
+
+    it("discovers both bundled skills via resources_discover", async () => {
+      const pi = createMockPi();
+      extensionFactory(pi);
+      const [resourcesHandler] = pi.handlers["resources_discover"]!;
+      const result = await resourcesHandler({}, createMockContext());
+      expect(result).toEqual({
+        skillPaths: expect.arrayContaining([
+          expect.stringContaining("ast-bro-refactor/SKILL.md"),
+          expect.stringContaining("ast-bro-architecture/SKILL.md"),
+        ]),
+      });
+      expect((result as { skillPaths: string[] }).skillPaths).toHaveLength(2);
     });
   });
 

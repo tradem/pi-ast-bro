@@ -17,19 +17,28 @@ This document describes the internal structure of `pi-ast-bro` for contributors 
   `tool_call` interceptors for `read`/`view_file` and `tool_result` middleware for `edit`/`write`. Falls back to Pi’s default behavior whenever `ast-bro` is unavailable or returns an error.
 
 - `src/tools.ts`  
-  LLM-callable tools that are backed by `ast-bro` but do not require snippet augmentation: `analyze_ast_map` and `analyze_ast_search`.
+  LLM-callable tools that are backed by `ast-bro` but do not require snippet augmentation: `analyze_ast_map`, `analyze_ast_search`, and the optional summary-mode parser.
+
+- `src/astContextPilot.ts`  
+  Token-budgeted context pilot wrapping `ast-bro context --json --compact --budget`. Provides `analyze_ast_context` for focused symbol/file understanding.
+
+- `src/astGraphPilot.ts`  
+  Dependency-graph pilot wrapping `ast-bro graph --json --compact --hide-external`. Provides `analyze_ast_graph` for architecture and coupling questions and truncates the edge list to `graphMaxEdges`.
 
 - `src/astBroTools.ts`  
   Refactoring tools that wrap `ast-bro impact` and `ast-bro implements`. Parses the CLI JSON output, injects `exact_snippet` around each match, applies the 50-result cutoff with `attention_required`, and reports estimated byte savings via the stats manager and `ctx.ui.notify`.
 
 - `src/tui.ts`  
-  Interactive components for `/ast` and `/ast-gain`.
+  Interactive components for `/ast` and `/ast-gain`. Exposes the new `graphMaxEdges` and `contextDefaultBudget` settings as preset lists with explanatory labels.
 
 - `src/utils.ts`  
   Safe path validation, `ast-bro` execution helpers, availability checks, and file-system utilities.
 
 - `skills/ast-bro-refactor/SKILL.md`  
   The bundled opt-in skill that guides the agent through the refactoring workflow and enforces the `exact_snippet`-only rule for `edits[].oldText`.
+
+- `skills/ast-bro-architecture/SKILL.md`  
+  The bundled opt-in skill that defines an AST-first workflow for architecture, bounded-context, aggregate, and module-relationship questions.
 
 ## Data flow
 
@@ -45,6 +54,45 @@ Agent calls read on a large file
          ▼
    Return AST outline + fallback reminder
 
+Agent calls analyze_ast_context
+         │
+         ▼
+   astContextPilot.ts
+         │
+         ▼
+   ast-bro context --json --compact --budget <budget> [target] path
+         │
+         ▼
+   Return focused JSON context (or error on non-zero exit)
+
+Agent calls analyze_ast_graph
+         │
+         ▼
+   astGraphPilot.ts
+         │
+         ▼
+   ast-bro graph --json --compact --hide-external path
+         │
+         ▼
+   Truncate edges to graphMaxEdges, annotate truncated/total_edges
+         │
+         ▼
+   Return compact dependency graph JSON
+
+Agent calls analyze_ast_search with mode: summary
+         │
+         ▼
+   tools.ts (summary parser)
+         │
+         ▼
+   Parse path:start-end headers
+         │
+         ▼
+   Return grouped JSON { total_hits, files: { path: { hit_count, ranges } } }
+         │
+         ▼
+   Fall back to raw stdout if headers cannot be parsed
+
 Agent calls analyze_ast_impact / find_implementations
          │
          ▼
@@ -59,6 +107,30 @@ Agent calls analyze_ast_impact / find_implementations
          ▼
    Report bytes saved to StatsManager + ctx.ui.notify
 ```
+
+## Tool catalogue
+
+| Tool | Module | CLI command | Output handling |
+|---|---|---|---|
+| `analyze_ast_context` | `src/astContextPilot.ts` | `ast-bro context --json --compact --budget <budget> [target] path` | Returns stdout JSON; errors on non-zero exit. Reads `contextDefaultBudget` from settings when `budget` is omitted. |
+| `analyze_ast_graph` | `src/astGraphPilot.ts` | `ast-bro graph --json --compact --hide-external path` | Truncates edge list to `graphMaxEdges`, annotates `truncated` and `total_edges`; errors on non-zero exit. |
+| `analyze_ast_map` | `src/tools.ts` | `ast-bro map path` | Returns stdout text; records read savings to `StatsManager` on success. |
+| `analyze_ast_search` | `src/tools.ts` | `ast-bro search [--top-k N] query` | `mode: "snippets"` returns raw stdout. `mode: "summary"` parses headers and returns grouped JSON, falling back to raw stdout if parsing fails. |
+| `analyze_ast_impact` | `src/astBroTools.ts` | `ast-bro impact --json target` | Parses JSON, injects `exact_snippet` per match, truncates at 50 results, reports savings. |
+| `find_implementations` | `src/astBroTools.ts` | `ast-bro implements --json symbol` | Parses JSON, injects `exact_snippet` per match, truncates at 50 results, reports savings. |
+
+## Settings reference
+
+All settings are defined in `src/config.ts` (`SettingsSchema`) and exposed in the `/ast` dashboard via `src/tui.ts`.
+
+| Setting | Default | Used by | Description |
+|---|---|---|---|
+| `enabled` | `true` | `interceptors.ts` | Master switch for read/view/edit interceptors. |
+| `supportedExtensions` | `[".rs", ".cs", ".ts", ".tsx", ".py"]` | `interceptors.ts`, `utils.ts` | File extensions eligible for read interception. |
+| `fileSizeThresholdLines` | `500` | `interceptors.ts` | Minimum line count to trigger AST read interception. |
+| `enablePreFlightSyntaxChecks` | `true` | `interceptors.ts` | Whether to flag `edit`/`write` results as errors when `ast-bro map` fails. |
+| `graphMaxEdges` | `500` | `src/astGraphPilot.ts` | Cap on edges returned by `analyze_ast_graph`. |
+| `contextDefaultBudget` | `4000` | `src/astContextPilot.ts` | Default token budget for `analyze_ast_context`. |
 
 ## Security notes
 
