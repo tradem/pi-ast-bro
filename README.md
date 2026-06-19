@@ -73,6 +73,16 @@ cd /path/to/pi-ast-bro
 pi -e ./src/index.ts
 ```
 
+#### Option D: Install via `pi install`
+
+If the package is published to GitHub, you can install it directly through Pi:
+
+```bash
+pi install git:github.com/tradem/pi-ast-bro
+```
+
+Then restart Pi or run `/reload`. Pi will read the `pi.extensions` entry from `package.json` and load the extension automatically.
+
 ### 3. Verify
 
 Start Pi and run:
