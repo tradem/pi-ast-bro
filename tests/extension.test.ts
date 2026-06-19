@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import extensionFactory from "../src/index";
+import extensionFactory from "../src/index.js";
 
 vi.mock("node:child_process", () => ({
   spawnSync: vi.fn(),
@@ -80,6 +80,11 @@ async function invokeHandlers(
 describe("pi-ast-bro extension", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(process, "on").mockReturnValue(process);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe("scaffolding and lifecycle", () => {
@@ -95,6 +100,8 @@ describe("pi-ast-bro extension", () => {
         "analyze_ast_search",
       ]);
       expect(pi.registeredCommands["ast"]).toBeDefined();
+      expect(pi.registeredCommands["ast-gain"]).toBeDefined();
+      expect(process.on).toHaveBeenCalledWith("exit", expect.any(Function));
     });
 
     it("prompts to install ast-bro on startup when binary is missing and user confirms", async () => {

@@ -8,7 +8,9 @@ A [Pi](https://pi.dev) extension that integrates the [`ast-bro`](https://github.
 - **Raw fallback**: If the agent needs the complete raw source, it can call `read` again with explicit `limit` and `offset`. This is enforced at the tool level, not by configuration flags.
 - **Pre-flight syntax checks**: After `edit` or `write`, the changed file is silently parsed with `ast-bro map`. If parsing fails, the tool result is marked as an error so the agent can fix the syntax immediately.
 - **Dedicated AST tools**: Exposes `analyze_ast_impact`, `analyze_ast_map`, and `analyze_ast_search` as LLM-callable tools backed by `ast-bro`.
+- **Persistent gain tracking**: Bytes saved, intercepted reads, and caught pre-flight syntax errors are persisted across sessions in `.pi/plugins/ast-bro/stats.json`.
 - **Interactive dashboard**: The `/ast` command opens a TUI overlay showing session stats, `ast-bro` availability, and live toggles for settings.
+- **Gain high-score dashboard**: The `/ast-gain` command opens a retro high-score style TUI overlay with lifetime stats and recent interception history.
 
 ## Supported languages
 
@@ -55,7 +57,7 @@ ln -s /path/to/pi-ast-bro ~/.pi/agent/extensions/pi-ast-bro
 
 Then start Pi normally from any project.
 
-#### Option A: Install via `pi install`
+#### Option B: Install via `pi install`
 
 If the package is published to GitHub, you can install it directly through Pi:
 
@@ -66,7 +68,7 @@ pi install git:github.com/tradem/pi-ast-bro
 Then restart Pi or run `/reload`. Pi will read the `pi.extensions` entry from `package.json` and load the extension automatically.
 
 
-#### Option B: Project-local extension
+#### Option C: Project-local extension
 
 Inside the project where you want to use it:
 
@@ -77,7 +79,7 @@ ln -s /path/to/pi-ast-bro/src/index.ts .pi/extensions/pi-ast-bro.ts
 
 You will need to trust the project with `/trust` when Pi asks.
 
-#### Option C: Temporary test from the repo
+#### Option D: Temporary test from the repo
 
 ```bash
 cd /path/to/pi-ast-bro
@@ -98,6 +100,8 @@ You should see the dashboard with:
 - `ast-bro status: available`
 - Runtime stats
 - Toggles for interceptors and threshold
+
+Run `/ast-gain` to see persistent lifetime stats (tokens saved, intercepts, caught errors, and recent activity).
 
 ## Usage
 
@@ -138,6 +142,21 @@ Example:
 
 You can also edit these values interactively with `/ast`.
 
+### `/ast-gain` — persistent statistics
+
+The `/ast-gain` dashboard shows:
+
+- **Lifetime savings**: Estimated tokens saved across all sessions, plus the raw byte count.
+- **Intercepts**: Total large-file reads that were replaced with an AST summary.
+- **Saved from errors**: Pre-flight syntax errors caught before they were handed back to the agent.
+- **Recent activity**: A rolling log of the last 100 intercepted reads and caught errors.
+
+Stats are stored per project at:
+
+```text
+.pi/plugins/ast-bro/stats.json
+```
+
 ## Development
 
 Install dependencies:
@@ -162,10 +181,10 @@ npm run typecheck
 
 - `src/index.ts` — Extension factory, startup lifecycle, and auto-installer prompt.
 - `src/config.ts` — Persistent settings manager using Typebox schemas.
-- `src/state.ts` — Session-level stats (bytes saved, reads intercepted, pre-flight errors).
+- `src/statsManager.ts` — Persistent and session-level stats manager with delta-update saves and TypeBox validation.
 - `src/interceptors.ts` — `tool_call` interceptors for `read`/`view_file` and `tool_result` middleware for `edit`/`write`.
 - `src/tools.ts` — `analyze_ast_impact`, `analyze_ast_map`, `analyze_ast_search` tool definitions.
-- `src/tui.ts` — `/ast` dashboard component.
+- `src/tui.ts` — `/ast` and `/ast-gain` dashboard components.
 - `src/utils.ts` — Safe path validation, `ast-bro` execution helpers, availability checks.
 
 ## Security notes

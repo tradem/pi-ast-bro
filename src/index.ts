@@ -1,15 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
-import { SettingsManager } from "./config";
+import { SettingsManager } from "./config.js";
 import {
   registerEditInterceptor,
   registerReadInterceptor,
   registerViewFileInterceptor,
-} from "./interceptors";
-import { SessionStats } from "./state";
-import { registerAstCommand } from "./tui";
-import { registerAstTools } from "./tools";
-import { isAstBroAvailable } from "./utils";
+} from "./interceptors.js";
+import { StatsManager } from "./statsManager.js";
+import { registerAstCommand, registerAstGainCommand } from "./tui.js";
+import { registerAstTools } from "./tools.js";
+import { isAstBroAvailable } from "./utils.js";
 
 /**
  * pi-ast-bro Extension
@@ -19,20 +19,27 @@ import { isAstBroAvailable } from "./utils";
  *  - Pre-flight syntax checks on edit/write tool results
  *  - Dedicated LLM tools for impact analysis, AST mapping, and semantic search
  *  - An interactive `/ast` dashboard
+ *  - Persistent `/ast-gain` statistics
  */
 export default function piAstBroExtension(pi: ExtensionAPI): void {
   const settings = new SettingsManager();
-  const stats = new SessionStats();
+  const stats = new StatsManager("");
 
-  // Register explicit agent tools and the interactive dashboard first so they
+  // Register explicit agent tools and the interactive dashboards first so they
   // are available regardless of whether the binary is installed.
   registerAstTools(pi);
   registerAstCommand(pi, settings, stats);
+  registerAstGainCommand(pi, stats);
   registerReadInterceptor(pi, settings, stats);
   registerViewFileInterceptor(pi, settings, stats);
   registerEditInterceptor(pi, settings, stats);
 
+  process.on("exit", () => {
+    stats.flushSync();
+  });
+
   pi.on("session_start", async (_event, ctx) => {
+    stats.setCwd(ctx.cwd);
     const config = await settings.load(ctx.cwd);
     if (!config.enabled) return;
 

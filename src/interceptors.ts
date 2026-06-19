@@ -8,8 +8,8 @@ import {
   type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
-import type { SettingsManager } from "./config";
-import type { SessionStats } from "./state";
+import type { SettingsManager } from "./config.js";
+import type { StatsManager } from "./statsManager.js";
 import {
   getFileLineCount,
   isAstBroAvailable,
@@ -17,12 +17,13 @@ import {
   isSupportedExtension,
   resolveExistingFilePath,
   runAstBro,
-} from "./utils";
+} from "./utils.js";
 
 interface ViewFileInput {
   path: string;
   offset?: number;
   limit?: number;
+  [key: string]: unknown;
 }
 
 const BYPASS_REMINDER =
@@ -79,7 +80,7 @@ function collectTextContent(content: Array<{ type: string; text?: string }>): st
  * Intercept `read` tool calls for large supported files and replace the result
  * with a token-budgeted AST context summary from `ast-bro`.
  */
-export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsManager, stats: SessionStats): void {
+export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsManager, stats: StatsManager): void {
   const pendingReads = new Map<string, PendingRead>();
 
   pi.on("tool_call", async (event, ctx) => {
@@ -101,6 +102,7 @@ export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsMana
         const original = readFileSync(decision.resolved, "utf-8");
         const output = astOutputWithReminder(astResult);
         stats.addReadSavings(
+          decision.resolved,
           Buffer.byteLength(original, "utf-8"),
           Buffer.byteLength(output, "utf-8"),
         );
@@ -129,7 +131,11 @@ export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsMana
 
     const output = astOutputWithReminder(astResult);
     const original = collectTextContent(event.content);
-    stats.addReadSavings(Buffer.byteLength(original, "utf-8"), Buffer.byteLength(output, "utf-8"));
+    stats.addReadSavings(
+      pending.resolved,
+      Buffer.byteLength(original, "utf-8"),
+      Buffer.byteLength(output, "utf-8"),
+    );
 
     return {
       content: [{ type: "text", text: output }],
@@ -141,7 +147,7 @@ export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsMana
  * Mirror of the read interceptor for any custom `view_file` tool that may be
  * registered by other extensions.
  */
-export function registerViewFileInterceptor(pi: ExtensionAPI, settings: SettingsManager, stats: SessionStats): void {
+export function registerViewFileInterceptor(pi: ExtensionAPI, settings: SettingsManager, stats: StatsManager): void {
   const pendingReads = new Map<string, PendingRead>();
 
   pi.on("tool_call", async (event, ctx) => {
@@ -160,7 +166,11 @@ export function registerViewFileInterceptor(pi: ExtensionAPI, settings: Settings
       try {
         const original = readFileSync(decision.resolved, "utf-8");
         const output = astOutputWithReminder(astResult);
-        stats.addReadSavings(Buffer.byteLength(original, "utf-8"), Buffer.byteLength(output, "utf-8"));
+        stats.addReadSavings(
+          decision.resolved,
+          Buffer.byteLength(original, "utf-8"),
+          Buffer.byteLength(output, "utf-8"),
+        );
       } catch {
         // Best-effort telemetry.
       }
@@ -188,7 +198,11 @@ export function registerViewFileInterceptor(pi: ExtensionAPI, settings: Settings
 
     const output = astOutputWithReminder(astResult);
     const original = collectTextContent(event.content);
-    stats.addReadSavings(Buffer.byteLength(original, "utf-8"), Buffer.byteLength(output, "utf-8"));
+    stats.addReadSavings(
+      pending.resolved,
+      Buffer.byteLength(original, "utf-8"),
+      Buffer.byteLength(output, "utf-8"),
+    );
 
     return {
       content: [{ type: "text", text: output }],
@@ -201,7 +215,7 @@ export function registerViewFileInterceptor(pi: ExtensionAPI, settings: Settings
  * modified file. When `ast-bro map` reports a parse error, the tool result is
  * mutated to `isError: true` so the agent can fix the syntax immediately.
  */
-export function registerEditInterceptor(pi: ExtensionAPI, settings: SettingsManager, stats: SessionStats): void {
+export function registerEditInterceptor(pi: ExtensionAPI, settings: SettingsManager, stats: StatsManager): void {
   pi.on("tool_result", async (event, ctx) => {
     if (!isEditToolResult(event) && !isWriteToolResult(event)) return;
 
@@ -219,8 +233,8 @@ export function registerEditInterceptor(pi: ExtensionAPI, settings: SettingsMana
     const astResult = runAstBro("map", resolved);
     if (!astResult || astResult.status === 0) return;
 
-    stats.recordPreFlightError();
     const diagnostic = astResult.stderr || astResult.stdout || "ast-bro reported a syntax error.";
+    stats.recordPreFlightError(resolved, diagnostic);
 
     return {
       isError: true,

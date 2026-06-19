@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isAstBroAvailable, isPathSafe, runAstBro, runAstBroSearch } from "./utils";
+import { isAstBroAvailable, isPathSafe, runAstBro, runAstBroSearch } from "./utils.js";
 
 /**
  * Register dedicated LLM-facing tools that expose ast-bro structural analysis
