@@ -13,7 +13,7 @@
 export const SUPPORTED_PI_RANGE = "^0.79.8";
 
 /**
- * Minimum supported ast-bro CLI range. Adjust this when the extension starts
- * depending on newer ast-bro flags or output formats.
+ * Supported ast-bro CLI range. 3.0.0 introduced the commands and output
+ * formats this extension relies on; 3.2.x may introduce breaking changes.
  */
-export const SUPPORTED_AST_BRO_RANGE = ">=0.1.0";
+export const SUPPORTED_AST_BRO_RANGE = ">=3.0.0 <3.2.0";

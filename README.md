@@ -50,7 +50,7 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 - [Pi](https://pi.dev) coding agent
 - [Node.js](https://nodejs.org/) >= 22
-- [`ast-bro`](https://github.com/badlogic/ast-bro) binary available on your `PATH`
+- [`ast-bro`](https://github.com/badlogic/ast-bro) binary (version **3.0.0 – 3.1.x**) available on your `PATH`
 
 ### 1. Install `ast-bro`
 

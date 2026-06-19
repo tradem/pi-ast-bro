@@ -77,11 +77,58 @@ describe("ast-bro version compatibility check", () => {
       expect.stringContaining("installed ast-bro (0.0.1) is not supported"),
       "error",
     );
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Expected >=0.1.0"), "error");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Expected >=3.0.0 <3.2.0"),
+      "error",
+    );
     expect(writeFileSync).toHaveBeenCalled();
     const writtenSettings = JSON.parse(
       (vi.mocked(writeFileSync).mock.calls[0] as [string, string])[1],
     ) as { enabled: boolean };
     expect(writtenSettings.enabled).toBe(false);
+  });
+
+  it("accepts ast-bro 3.0.0 as supported", async () => {
+    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "--version") {
+        return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      if (command === "which" && args?.[0] === "ast-bro") {
+        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
+
+    const pi = createMockPi();
+    extensionFactory(pi);
+
+    const ctx = createMockContext();
+    const [sessionHandler] = pi.handlers["session_start"]!;
+    await sessionHandler({}, ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro detected", "info");
+    expect(writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("extracts the semver from prefixed version output like 'ast-bro 3.1.0'", async () => {
+    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "--version") {
+        return { status: 0, stdout: "ast-bro 3.1.0\n", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      if (command === "which" && args?.[0] === "ast-bro") {
+        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
+
+    const pi = createMockPi();
+    extensionFactory(pi);
+
+    const ctx = createMockContext();
+    const [sessionHandler] = pi.handlers["session_start"]!;
+    await sessionHandler({}, ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro detected", "info");
+    expect(writeFileSync).not.toHaveBeenCalled();
   });
 });

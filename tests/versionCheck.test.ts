@@ -65,7 +65,7 @@ describe("pi version compatibility check", () => {
   it("warns but keeps running when pi-coding-agent version is outside the tested range", async () => {
     vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+        return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
       }
       if (command === "which" && args?.[0] === "ast-bro") {
         return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;

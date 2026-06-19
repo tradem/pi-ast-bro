@@ -10,6 +10,17 @@ export interface AstBroInfo {
 }
 
 /**
+ * Extract the first semver-looking substring from a version output line.
+ *
+ * Handles outputs such as "ast-bro 3.0.0" or "v3.0.0" by stripping a leading
+ * label and returning "3.0.0".
+ */
+function extractSemver(versionOutput: string): string | undefined {
+  const match = versionOutput.match(/(\d+\.\d+(?:\.\d+)?)/);
+  return match?.[1];
+}
+
+/**
  * Discover whether `ast-bro` is available and, if so, its resolved path and
  * version.
  *
@@ -27,7 +38,8 @@ export function getAstBroInfo(): AstBroInfo {
     });
     if (versionResult.status === 0 && versionResult.stdout) {
       available = true;
-      version = versionResult.stdout.trim().split("\n")[0];
+      const raw = versionResult.stdout.trim().split("\n")[0] ?? "";
+      version = extractSemver(raw);
     }
   } catch {
     return { available: false };
