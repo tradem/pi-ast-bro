@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { StatsManager, formatTokens, relativePath } from "../src/statsManager";
+import { StatsManager, formatTokens, relativePath } from "../src/statsManager.js";
 
 vi.mock("node:fs");
 

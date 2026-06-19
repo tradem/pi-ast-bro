@@ -27,7 +27,7 @@ export default function piAstBroExtension(pi: ExtensionAPI): void {
 
   // Register explicit agent tools and the interactive dashboards first so they
   // are available regardless of whether the binary is installed.
-  registerAstTools(pi);
+  registerAstTools(pi, stats);
   registerAstCommand(pi, settings, stats);
   registerAstGainCommand(pi, stats);
   registerReadInterceptor(pi, settings, stats);

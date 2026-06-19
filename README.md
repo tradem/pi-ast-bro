@@ -8,7 +8,7 @@ A [Pi](https://pi.dev) extension that integrates the [`ast-bro`](https://github.
 - **Raw fallback**: If the agent needs the complete raw source, it can call `read` again with explicit `limit` and `offset`. This is enforced at the tool level, not by configuration flags.
 - **Pre-flight syntax checks**: After `edit` or `write`, the changed file is silently parsed with `ast-bro map`. If parsing fails, the tool result is marked as an error so the agent can fix the syntax immediately.
 - **Dedicated AST tools**: Exposes `analyze_ast_impact`, `analyze_ast_map`, and `analyze_ast_search` as LLM-callable tools backed by `ast-bro`.
-- **Persistent gain tracking**: Bytes saved, intercepted reads, and caught pre-flight syntax errors are persisted across sessions in `.pi/plugins/ast-bro/stats.json`.
+- **Persistent gain tracking**: Bytes saved, intercepted reads, caught pre-flight syntax errors, and explicit `analyze_ast_map` calls are persisted across sessions in `.pi/plugins/ast-bro/stats.json`.
 - **Interactive dashboard**: The `/ast` command opens a TUI overlay showing session stats, `ast-bro` availability, and live toggles for settings.
 - **Gain high-score dashboard**: The `/ast-gain` command opens a retro high-score style TUI overlay with lifetime stats and recent interception history.
 

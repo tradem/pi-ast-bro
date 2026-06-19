@@ -419,8 +419,43 @@ describe("pi-ast-bro extension", () => {
       const result = await impactTool.execute("tc", { path: "src/lib.rs" }, new AbortController().signal, undefined, createMockContext());
 
       expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["impact", "src/lib.rs"], expect.any(Object));
-      expect(result.content[0].text).toContain("impact result");
-      expect(result.isError).toBe(false);
+      const typedResult = result as unknown as { content: Array<{ type: string; text: string }>; isError: boolean };
+      expect(typedResult.content[0].text).toContain("impact result");
+      expect(typedResult.isError).toBe(false);
+    });
+
+    it("records gain stats when analyze_ast_map succeeds", async () => {
+      const pi = createMockPi();
+      extensionFactory(pi);
+      const { spawnSync } = await import("node:child_process");
+      const { existsSync, readFileSync } = await import("node:fs");
+
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readFileSync).mockReturnValue("original file content with many lines\n".repeat(400));
+      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
+        if (command === "ast-bro" && args[0] === "--version") {
+          return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
+        }
+        if (command === "ast-bro" && args[0] === "map") {
+          return { status: 0, stdout: "AST map summary", stderr: "" } as ReturnType<typeof spawnSync>;
+        }
+        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+
+      const mapTool = pi.registeredTools.find((t) => t.name === "analyze_ast_map")!;
+      const result = await mapTool.execute(
+        "tc",
+        { path: "src/lib.rs" },
+        new AbortController().signal,
+        undefined,
+        createMockContext(),
+      );
+
+      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["map", "src/lib.rs"], expect.any(Object));
+      expect(readFileSync).toHaveBeenCalledWith("/project/src/lib.rs", "utf-8");
+      const typedResult = result as unknown as { content: Array<{ type: string; text: string }>; isError: boolean };
+      expect(typedResult.content[0].text).toContain("AST map summary");
+      expect(typedResult.isError).toBe(false);
     });
   });
 });

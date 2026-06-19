@@ -1,12 +1,24 @@
 import { Type } from "typebox";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isAstBroAvailable, isPathSafe, runAstBro, runAstBroSearch } from "./utils.js";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import type { StatsManager } from "./statsManager.js";
+import {
+  isAstBroAvailable,
+  isPathSafe,
+  resolveExistingFilePath,
+  runAstBro,
+  runAstBroSearch,
+} from "./utils.js";
 
 /**
  * Register dedicated LLM-facing tools that expose ast-bro structural analysis
  * capabilities beyond the transparent read/write interceptors.
+ *
+ * `analyze_ast_map` also contributes to persistent gain statistics because it
+ * serves the same purpose as an intercepted read: providing token-efficient AST
+ * context in place of the full raw source.
  */
-export function registerAstTools(pi: ExtensionAPI): void {
+export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
   pi.registerTool({
     name: "analyze_ast_impact",
     label: "AST Impact",
@@ -20,6 +32,7 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "ast-bro is not installed or not on PATH." }],
           isError: true,
+          details: undefined,
         };
       }
 
@@ -28,6 +41,7 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Invalid or unsafe file path." }],
           isError: true,
+          details: undefined,
         };
       }
 
@@ -36,6 +50,7 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Failed to run ast-bro impact." }],
           isError: true,
+          details: undefined,
         };
       }
 
@@ -54,11 +69,18 @@ export function registerAstTools(pi: ExtensionAPI): void {
     parameters: Type.Object({
       path: Type.String({ description: "Path to the file or symbol to map" }),
     }),
-    async execute(_toolCallId, params) {
+    async execute(
+      _toolCallId: string,
+      params: { path: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ExtensionContext,
+    ) {
       if (!isAstBroAvailable()) {
         return {
           content: [{ type: "text", text: "ast-bro is not installed or not on PATH." }],
           isError: true,
+          details: undefined,
         };
       }
 
@@ -67,6 +89,7 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Invalid or unsafe file path." }],
           isError: true,
+          details: undefined,
         };
       }
 
@@ -75,7 +98,29 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Failed to run ast-bro map." }],
           isError: true,
+          details: undefined,
         };
+      }
+
+      // Treat a successful AST map as a token-saving read interception and
+      // record it in the persistent stats. We resolve the path against the
+      // current working directory so the recorded path matches the project root.
+      if (result.status === 0 && typeof ctx?.cwd === "string") {
+        const resolved = resolveExistingFilePath(ctx.cwd, path);
+        if (resolved) {
+          try {
+            const original = readFileSync(resolved, "utf-8");
+            const output = result.stdout || "";
+            stats.addReadSavings(
+              resolved,
+              Buffer.byteLength(original, "utf-8"),
+              Buffer.byteLength(output, "utf-8"),
+            );
+          } catch {
+            // Best-effort telemetry: if the original cannot be measured, still
+            // serve the AST output.
+          }
+        }
       }
 
       return {
@@ -98,6 +143,7 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "ast-bro is not installed or not on PATH." }],
           isError: true,
+          details: undefined,
         };
       }
 
@@ -106,6 +152,7 @@ export function registerAstTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Failed to run ast-bro search." }],
           isError: true,
+          details: undefined,
         };
       }
 
