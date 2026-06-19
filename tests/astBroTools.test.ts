@@ -187,7 +187,7 @@ describe("astBroTools", () => {
       const result = await executeAstBroRefactorTool("impact", "make_ctx; rm -rf /", undefined, ctx);
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("Invalid or unsafe");
+      expect(result.content[0].text).toContain("Invalid");
     });
 
     it("returns an error when ast-bro exits non-zero", async () => {

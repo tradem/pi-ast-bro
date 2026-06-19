@@ -229,11 +229,23 @@ function augmentResult(parsed: unknown, cwd: string): AugmentResult {
 }
 
 /**
- * Build the positional target accepted by `ast-bro impact` / `implements`:
- * `symbol` or `file:symbol`.
+ * Symbols are passed as a single spawn argument, so shell metacharacters are
+ * already harmless. We still reject obvious injection patterns and control
+ * characters, but keep type parameters like `Command<T>` intact.
  */
-function buildTarget(symbol: string, file?: string): string {
-  if (!isPathSafe(symbol)) return "";
+function isSymbolSafe(symbol: string): boolean {
+  if (typeof symbol !== "string" || symbol.length === 0) return false;
+  if (symbol.includes("\0")) return false;
+  const dangerous = /[;|&$`\r\n]/;
+  return !dangerous.test(symbol);
+}
+
+/**
+ * `impact` accepts `file:symbol` as a single positional target.
+ * `implements` accepts `symbol` plus optional search paths as extra args.
+ */
+function buildImpactTarget(symbol: string, file?: string): string {
+  if (!isSymbolSafe(symbol)) return "";
   if (file && !isPathSafe(file)) return "";
   return file ? `${file}:${symbol}` : symbol;
 }
@@ -244,9 +256,13 @@ function buildTarget(symbol: string, file?: string): string {
 function runAstBroRefactor(
   subcommand: AstRefactorCommand,
   target: string,
+  searchPath?: string,
 ): { status: number | null; stdout: string; stderr: string } | null {
+  const args = [subcommand, "--json", target];
+  if (searchPath) args.push(searchPath);
+
   try {
-    const result = spawnSync("ast-bro", [subcommand, "--json", target], {
+    const result = spawnSync("ast-bro", args, {
       encoding: "utf-8",
       stdio: "pipe",
       timeout: 60_000,
@@ -276,7 +292,23 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  const target = buildTarget(symbol, file);
+  if (!isSymbolSafe(symbol)) {
+    return {
+      content: [{ type: "text", text: "Invalid or empty symbol." }],
+      isError: true,
+      details: { exitCode: null },
+    };
+  }
+
+  if (file && !isPathSafe(file)) {
+    return {
+      content: [{ type: "text", text: "Invalid or unsafe file path." }],
+      isError: true,
+      details: { exitCode: null },
+    };
+  }
+
+  const target = subcommand === "impact" ? buildImpactTarget(symbol, file) : symbol;
   if (!target) {
     return {
       content: [{ type: "text", text: "Invalid or unsafe symbol/file path." }],
@@ -285,7 +317,7 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  const result = runAstBroRefactor(subcommand, target);
+  const result = runAstBroRefactor(subcommand, target, subcommand === "implements" ? file : undefined);
   if (!result) {
     return {
       content: [{ type: "text", text: `Failed to run ast-bro ${subcommand}.` }],
@@ -344,6 +376,11 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
     label: "AST Impact",
     description:
       "Cross-file impact analysis: traces callers, callees, and reverse-deps for a symbol. Returns JSON with exact source snippets for safe edits. Pass the symbol name and optionally a file path to disambiguate (file:symbol).",
+    promptGuidelines: [
+      "Use this tool when the user asks for callers, callees, or impact of a symbol.",
+      "Prefer it over bash/rg/grep for AST-accurate caller analysis.",
+      "Pass the bare symbol name and, if ambiguous, the file path that defines it.",
+    ],
     parameters: AnalyzeAstImpactSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeAstBroRefactorTool("impact", params.symbol, params.file, ctx, stats);
@@ -355,6 +392,10 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
     label: "Find Implementations",
     description:
       "Find interface implementations, trait implementations, and derived classes for a symbol. Returns JSON with exact source snippets for safe edits.",
+    promptGuidelines: [
+      "Use this tool when the user asks for implementations of a trait, interface, or base class.",
+      "Prefer it over bash/rg/grep for AST-accurate implementation discovery.",
+    ],
     parameters: FindImplementationsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return executeAstBroRefactorTool("implements", params.symbol, params.file, ctx, stats);
