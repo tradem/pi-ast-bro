@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import type { Settings, SettingsManager } from "./config.js";
 import { formatBytesHuman, formatTokens, relativePath, type StatsManager } from "./statsManager.js";
-import { getAstBroInfo } from "./utils.js";
+import { getAstBroInfo, getExtensionVersion } from "./utils.js";
 
 interface NumberPreset {
   value: number;
@@ -67,9 +67,11 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
         const container = new Container();
 
         const astBroInfo = getAstBroInfo();
+        const extensionVersion = getExtensionVersion();
         const statusColor = astBroInfo.available ? "success" : "error";
         const statusText = astBroInfo.available ? "available" : "not found";
-        const versionLine = astBroInfo.version ? `  Version           : ${astBroInfo.version}` : "";
+        const extensionVersionLine = `  Extension version : ${extensionVersion}`;
+        const versionLine = astBroInfo.version ? `  ast-bro version   : ${astBroInfo.version}` : "";
         const pathLine = astBroInfo.path
           ? `  Resolved path     : ${astBroInfo.path}`
           : "  Resolved path     : (not resolved – `which` may be unavailable)";
@@ -79,6 +81,7 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
             const summary = stats.getSessionSummary();
             const bytesSavedFormatted = formatBytesHuman(summary.bytesSaved);
             const lines = [theme.fg("accent", "pi-ast-bro Dashboard"), ""];
+            lines.push(extensionVersionLine);
             lines.push(`  ast-bro status    : ${theme.fg(statusColor, statusText)}`);
             if (versionLine) lines.push(versionLine);
             lines.push(pathLine);

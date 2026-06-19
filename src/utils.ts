@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { extname, isAbsolute, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface AstBroInfo {
   available: boolean;
@@ -127,6 +128,22 @@ export function runAstBro(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Read the extension version from package.json.
+ *
+ * Falls back to "unknown" when package.json cannot be read, so the TUI never
+ * crashes because of a missing or malformed manifest.
+ */
+export function getExtensionVersion(): string {
+  try {
+    const packagePath = join(dirname(fileURLToPath(import.meta.url)), "../package.json");
+    const manifest = JSON.parse(readFileSync(packagePath, "utf-8")) as { version?: string };
+    return manifest.version ?? "unknown";
+  } catch {
+    return "unknown";
   }
 }
 
