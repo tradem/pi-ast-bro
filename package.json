@@ -32,5 +32,11 @@
     "ast-bro",
     "ast"
   ],
+  "files": [
+    "src",
+    "skills",
+    "package.json",
+    "README.md"
+  ],
   "license": "MIT"
 }

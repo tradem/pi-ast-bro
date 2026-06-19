@@ -98,6 +98,7 @@ describe("pi-ast-bro extension", () => {
         "analyze_ast_impact",
         "analyze_ast_map",
         "analyze_ast_search",
+        "find_implementations",
       ]);
       expect(pi.registeredCommands["ast"]).toBeDefined();
       expect(pi.registeredCommands["ast-gain"]).toBeDefined();

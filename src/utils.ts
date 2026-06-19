@@ -112,7 +112,7 @@ export function isPathSafe(filePath: string): boolean {
  * `null` and the caller can fall back to default behavior.
  */
 export function runAstBro(
-  subcommand: "context" | "map" | "impact" | "search",
+  subcommand: "context" | "map" | "impact" | "implements" | "search",
   filePath: string,
 ): { status: number | null; stdout: string; stderr: string } | null {
   if (!isPathSafe(filePath)) return null;

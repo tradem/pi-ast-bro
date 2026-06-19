@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SettingsManager } from "./config.js";
 import {
   registerEditInterceptor,
@@ -8,6 +10,7 @@ import {
 } from "./interceptors.js";
 import { StatsManager } from "./statsManager.js";
 import { registerAstCommand, registerAstGainCommand } from "./tui.js";
+import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
 import { isAstBroAvailable } from "./utils.js";
 
@@ -27,8 +30,16 @@ export default function piAstBroExtension(pi: ExtensionAPI): void {
 
   // Register explicit agent tools and the interactive dashboards first so they
   // are available regardless of whether the binary is installed.
+  registerRefactoringTools(pi, stats);
   registerAstTools(pi, stats);
   registerAstCommand(pi, settings, stats);
+
+  const extensionDir = dirname(fileURLToPath(import.meta.url));
+  pi.on("resources_discover", () => {
+    return {
+      skillPaths: [join(extensionDir, "../skills/ast-bro-refactor/SKILL.md")],
+    };
+  });
   registerAstGainCommand(pi, stats);
   registerReadInterceptor(pi, settings, stats);
   registerViewFileInterceptor(pi, settings, stats);

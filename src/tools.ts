@@ -17,51 +17,11 @@ import {
  * `analyze_ast_map` also contributes to persistent gain statistics because it
  * serves the same purpose as an intercepted read: providing token-efficient AST
  * context in place of the full raw source.
+ *
+ * `analyze_ast_impact` is registered separately in {@link registerRefactoringTools}
+ * because it augments the CLI output with exact-match source snippets.
  */
 export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
-  pi.registerTool({
-    name: "analyze_ast_impact",
-    label: "AST Impact",
-    description:
-      "Cross-file impact analysis: traces callers, callees, and reverse-deps. Use this before a major refactor to plan changes.",
-    parameters: Type.Object({
-      path: Type.String({ description: "Path to the file or symbol to analyze" }),
-    }),
-    async execute(_toolCallId, params) {
-      if (!isAstBroAvailable()) {
-        return {
-          content: [{ type: "text", text: "ast-bro is not installed or not on PATH." }],
-          isError: true,
-          details: undefined,
-        };
-      }
-
-      const path = params.path;
-      if (!isPathSafe(path)) {
-        return {
-          content: [{ type: "text", text: "Invalid or unsafe file path." }],
-          isError: true,
-          details: undefined,
-        };
-      }
-
-      const result = runAstBro("impact", path);
-      if (!result) {
-        return {
-          content: [{ type: "text", text: "Failed to run ast-bro impact." }],
-          isError: true,
-          details: undefined,
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: result.stdout || result.stderr }],
-        isError: result.status !== 0,
-        details: { exitCode: result.status },
-      };
-    },
-  });
-
   pi.registerTool({
     name: "analyze_ast_map",
     label: "AST Map",
