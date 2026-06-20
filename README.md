@@ -39,10 +39,20 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 - `.rs` (Rust)
 - `.cs` (C#)
+- `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh` (C++)
+- `.py`, `.pyi` (Python)
 - `.ts`, `.tsx` (TypeScript)
-- `.py` (Python)
+- `.js`, `.jsx`, `.mjs`, `.cjs` (JavaScript)
+- `.java` (Java)
+- `.kt`, `.kts` (Kotlin)
+- `.scala`, `.sc` (Scala)
+- `.go` (Go)
+- `.php` (PHP)
+- `.rb` (Ruby)
+- `.sql`, `.ddl`, `.dml` (SQL)
+- `.md`, `.markdown`, `.mdx`, `.mdown` (Markdown)
 
-`.dart` is no longer enabled by default because `ast-bro` apparently lacks support of [Dart](https://dart.dev/) / Flutter for now.
+`.dart` is not enabled by default because `ast-bro` currently does not ship a Dart / Flutter grammar.
 
 ## Installation
 
@@ -182,7 +192,7 @@ Settings are stored per project at `.pi/plugins/ast-bro/settings.json` and edite
 | Setting | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Master switch for AST interceptors. |
-| `supportedExtensions` | `[".rs", ".cs", ".ts", ".tsx", ".py"]` | File extensions that trigger read interception. |
+| `supportedExtensions` | `[".rs", ".cs", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".java", ".kt", ".kts", ".scala", ".sc", ".go", ".php", ".rb", ".sql", ".ddl", ".dml", ".md", ".markdown", ".mdx", ".mdown"]` | File extensions that trigger read interception. |
 | `fileSizeThresholdLines` | `500` | Line threshold above which a large file read is replaced by an AST map. |
 | `enablePreFlightSyntaxChecks` | `true` | Run `ast-bro map` after edits/writes and mark the result as an error on failure. |
 | `graphMaxEdges` | `500` | Maximum edges returned by `analyze_ast_graph`; larger graphs are truncated. |
@@ -200,7 +210,38 @@ Example:
 ```json
 {
   "enabled": true,
-  "supportedExtensions": [".rs", ".cs", ".ts", ".tsx", ".py"],
+  "supportedExtensions": [
+    ".rs",
+    ".cs",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".hpp",
+    ".hh",
+    ".py",
+    ".pyi",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".java",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".sc",
+    ".go",
+    ".php",
+    ".rb",
+    ".sql",
+    ".ddl",
+    ".dml",
+    ".md",
+    ".markdown",
+    ".mdx",
+    ".mdown"
+  ],
   "fileSizeThresholdLines": 500,
   "enablePreFlightSyntaxChecks": true,
   "graphMaxEdges": 500,

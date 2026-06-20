@@ -293,19 +293,19 @@ describe("pi-ast-bro extension", () => {
       const { spawnSync } = await import("node:child_process");
       const { existsSync, readFileSync } = await import("node:fs");
 
-      vi.mocked(existsSync).mockImplementation((p: string) => p === "/project/docs/readme.md");
+      vi.mocked(existsSync).mockImplementation((p: string) => p === "/project/docs/readme.yaml");
       vi.mocked(readFileSync).mockImplementation((p: string) =>
-        p === "/project/docs/readme.md" ? "line\n".repeat(501) : "{not valid json",
+        p === "/project/docs/readme.yaml" ? "line\n".repeat(501) : "{not valid json",
       );
 
       const ctx = createMockContext({ overrideResult: undefined });
-      const toolCallEvent = { toolName: "read", input: { path: "docs/readme.md" }, toolCallId: "tc4" };
+      const toolCallEvent = { toolName: "read", input: { path: "docs/readme.yaml" }, toolCallId: "tc4" };
       await invokeHandlers(pi, "tool_call", toolCallEvent, ctx);
 
       const toolResultEvent = {
         toolName: "read",
         toolCallId: "tc4",
-        input: { path: "docs/readme.md" },
+        input: { path: "docs/readme.yaml" },
         content: [{ type: "text", text: "original" }],
         isError: false,
       };

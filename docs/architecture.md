@@ -153,7 +153,7 @@ All settings are defined in `src/config.ts` (`SettingsSchema`) and exposed in th
 | Setting | Default | Used by | Description |
 |---|---|---|---|
 | `enabled` | `true` | `interceptors.ts` | Master switch for read/view/edit interceptors. |
-| `supportedExtensions` | `[".rs", ".cs", ".ts", ".tsx", ".py"]` | `interceptors.ts`, `utils.ts` | File extensions eligible for read interception. |
+| `supportedExtensions` | `[".rs", ".cs", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".java", ".kt", ".kts", ".scala", ".sc", ".go", ".php", ".rb", ".sql", ".ddl", ".dml", ".md", ".markdown", ".mdx", ".mdown"]` | `interceptors.ts`, `utils.ts` | File extensions eligible for read interception. |
 | `fileSizeThresholdLines` | `500` | `interceptors.ts` | Minimum line count to trigger AST read interception. |
 | `enablePreFlightSyntaxChecks` | `true` | `interceptors.ts` | Whether to flag `edit`/`write` results as errors when `ast-bro map` fails. |
 | `graphMaxEdges` | `500` | `src/astGraphPilot.ts` | Cap on edges returned by `analyze_ast_graph`. |
