@@ -79,8 +79,15 @@ sudo ln -s "$(which ast-bro)" /usr/local/bin/ast-bro
 
 ### 2. Install the extension
 
-#### Option A: Global extension (recommended)
+#### Option A: Install via `pi install` (recommended)
 
+If the package is published to a Pi-compatible registry or GitHub:
+
+```bash
+pi install git:github.com/<owner>/pi-ast-bro
+```
+
+#### Option B: Global extension
 ```bash
 mkdir -p ~/.pi/agent/extensions
 ln -s /path/to/pi-ast-bro ~/.pi/agent/extensions/pi-ast-bro
@@ -88,13 +95,6 @@ ln -s /path/to/pi-ast-bro ~/.pi/agent/extensions/pi-ast-bro
 
 Start Pi normally from any project.
 
-#### Option B: Install via `pi install`
-
-If the package is published to a Pi-compatible registry or GitHub:
-
-```bash
-pi install git:github.com/<owner>/pi-ast-bro
-```
 
 Then restart Pi or run `/reload`. Pi reads the `pi.extensions` entry from `package.json` and loads the extension automatically.
 
