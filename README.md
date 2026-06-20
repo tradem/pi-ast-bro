@@ -1,6 +1,6 @@
 # pi-ast-bro
 
-A [Pi](https://pi.dev) extension that integrates the [ast-bro](]https://github.com/aeroxy/ast-bro/) CLI for AST-based code navigation, token-efficient context building, and pre-flight syntax checks.
+A [Pi](https://pi.dev) extension that integrates the [`ast-bro`](https://github.com/aeroxy/ast-bro/)  CLI for AST-based code navigation, token-efficient context building, and pre-flight syntax checks.
 
 ## Features
 
