@@ -10,16 +10,13 @@ refactoring inside a codebase that has the `ast-bro` CLI available.
 
 ## Workflow
 
-1. **Plan the change** with `analyze_ast_impact`.
-   - Pass the file path or fully-qualified symbol name.
-   - The tool returns affected callers, callees, and tests as JSON, with each
-     match annotated with an `exact_snippet`.
+1. **Plan the change with `analyze_ast_impact` and discover polymorphic borders
+   with `find_implementations`.**
+   - Pass a file path or fully-qualified symbol name to `analyze_ast_impact`.
+   - Pass an interface or base-class symbol to `find_implementations`.
+   - Every match contains an `exact_snippet` ready for editing.
 
-2. **Discover polymorphic borders** with `find_implementations`.
-   - Pass the interface or base class path/symbol.
-   - Again, every match contains an `exact_snippet` ready for editing.
-
-3. **Perform edits with exact-match safety**.
+2. **Perform edits with exact-match safety**.
    - Use the `exact_snippet` value from the JSON output as the
      `edits[].oldText` argument to the `edit` tool.
    - Do not rewrite, reformat, or paraphrase the snippet. Any whitespace change

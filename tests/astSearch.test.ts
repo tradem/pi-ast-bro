@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { registerAstTools, parseSearchSummary } from "../src/tools.js";
+import { registerAstTools, parseSearchSummary, trimSearchSnippets } from "../src/tools.js";
 import { StatsManager } from "../src/statsManager.js";
+import type { Settings } from "../src/config.js";
+import type { SettingsManager } from "../src/config.js";
 
 vi.mock("node:child_process", () => ({
   spawnSync: vi.fn(),
@@ -55,6 +57,28 @@ function createMockContext(overrides?: Partial<ExtensionContext>): ExtensionCont
     },
     ...overrides,
   } as ExtensionContext;
+}
+
+function createMockSettings(overrides: Partial<Settings> = {}): SettingsManager {
+  return {
+    load: async () =>
+      ({
+        enabled: true,
+        supportedExtensions: [".rs"],
+        fileSizeThresholdLines: 500,
+        enablePreFlightSyntaxChecks: true,
+        graphMaxEdges: 500,
+        contextDefaultBudget: 4000,
+        enableLogSqueeze: false,
+        enableIndexRefresh: false,
+        enableSessionSeed: false,
+        sessionSeedBudget: 4000,
+        sessionSeedScope: "root",
+        enableCyclePreflight: false,
+        searchSnippetBudget: 8000,
+        ...overrides,
+      }) as Settings,
+  } as unknown as SettingsManager;
 }
 
 describe("parseSearchSummary", () => {
@@ -116,7 +140,7 @@ describe("analyze_ast_search summary mode", () => {
 
     const pi = createMockPi();
     const stats = new StatsManager("");
-    registerAstTools(pi, stats);
+    registerAstTools(pi, stats, createMockSettings());
     const tool = getTool(pi, "analyze_ast_search");
 
     const result = await tool.execute(
@@ -139,7 +163,7 @@ describe("analyze_ast_search summary mode", () => {
 
     const pi = createMockPi();
     const stats = new StatsManager("");
-    registerAstTools(pi, stats);
+    registerAstTools(pi, stats, createMockSettings());
     const tool = getTool(pi, "analyze_ast_search");
 
     const result = await tool.execute("tc", { query: "x", mode: "summary" }, undefined, undefined, createMockContext());
@@ -153,7 +177,7 @@ describe("analyze_ast_search summary mode", () => {
 
     const pi = createMockPi();
     const stats = new StatsManager("");
-    registerAstTools(pi, stats);
+    registerAstTools(pi, stats, createMockSettings());
     const tool = getTool(pi, "analyze_ast_search");
 
     const result = await tool.execute("tc", { query: "x" }, undefined, undefined, createMockContext());
@@ -167,7 +191,7 @@ describe("analyze_ast_search summary mode", () => {
 
     const pi = createMockPi();
     const stats = new StatsManager("");
-    registerAstTools(pi, stats);
+    registerAstTools(pi, stats, createMockSettings());
     const tool = getTool(pi, "analyze_ast_search");
 
     const result = await tool.execute(
@@ -187,13 +211,62 @@ describe("analyze_ast_search summary mode", () => {
 
     const pi = createMockPi();
     const stats = new StatsManager("");
-    registerAstTools(pi, stats);
+    registerAstTools(pi, stats, createMockSettings());
     const tool = getTool(pi, "analyze_ast_search");
 
     const result = await tool.execute("tc", { query: "x", mode: "summary" }, undefined, undefined, createMockContext());
 
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("search error");
+  });
+});
+
+describe("trimSearchSnippets", () => {
+  it("is a no-op when output is under budget", () => {
+    const stdout = [
+      "/project/src/a.rs:10-20 [score 0.9]",
+      "snippet line",
+      "/project/src/b.rs:5-15 [score 0.8]",
+      "snippet line",
+    ].join("\n");
+
+    const result = trimSearchSnippets(stdout, 8000);
+    expect(result.output).toBe(stdout);
+    expect(result.truncated).toBe(false);
+    expect(result.omittedHits).toBe(0);
+  });
+
+  it("keeps top-ranked hits and annotates omissions", () => {
+    const stdout = [
+      "/project/src/first.rs:1-2 [score 0.9]",
+      "line",
+      "/project/src/second.rs:3-4 [score 0.8]",
+      "line",
+      "/project/src/third.rs:5-6 [score 0.7]",
+      "line",
+    ].join("\n");
+
+    // Budget forces only the first hit to fit.
+    const result = trimSearchSnippets(stdout, 1);
+    expect(result.output).toContain("/project/src/first.rs:1-2 [score 0.9]");
+    expect(result.output).not.toContain("/project/src/third.rs:5-6 [score 0.7]");
+    expect(result.output).not.toContain("/project/src/second.rs:3-4 [score 0.8]");
+    expect(result.truncated).toBe(true);
+    expect(result.omittedHits).toBe(2);
+    expect(result.output).toContain("2 additional hits omitted");
+  });
+
+  it("preserves singular wording for a single omitted hit", () => {
+    const stdout = [
+      "/project/src/first.rs:1-2 [score 0.9]",
+      "line",
+      "/project/src/second.rs:3-4 [score 0.8]",
+      "line",
+    ].join("\n");
+
+    const result = trimSearchSnippets(stdout, 1);
+    expect(result.omittedHits).toBe(1);
+    expect(result.output).toContain("1 additional hit omitted");
   });
 });
 

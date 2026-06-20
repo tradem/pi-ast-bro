@@ -100,6 +100,8 @@ describe("pi-ast-bro extension", () => {
         "analyze_ast_impact",
         "analyze_ast_map",
         "analyze_ast_search",
+        "analyze_ast_surface",
+        "analyze_ast_trace",
         "find_implementations",
       ]);
       expect(pi.registeredCommands["ast"]).toBeDefined();

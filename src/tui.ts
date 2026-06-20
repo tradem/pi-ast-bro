@@ -27,6 +27,14 @@ const GRAPH_MAX_EDGES_PRESETS: NumberPreset[] = [
   { value: 2500, label: "2500 — very large graph" },
 ];
 
+const SEARCH_SNIPPET_BUDGET_PRESETS: NumberPreset[] = [
+  { value: 2000, label: "2000 — quick search" },
+  { value: 4000, label: "4000 — standard search" },
+  { value: 8000, label: "8000 — detailed search" },
+  { value: 16000, label: "16000 — deep search" },
+  { value: 32000, label: "32000 — exhaustive search" },
+];
+
 function parsePresetLabel(label: string): number {
   const match = label.match(/^(\d+)/);
   return match ? Number.parseInt(match[1], 10) : 0;
@@ -94,10 +102,12 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
               );
             }
             lines.push(pathLine);
+            const squeezeSavedFormatted = formatBytesHuman(summary.squeezeBytesSaved);
             lines.push(
               "",
               `  Reads intercepted : ${summary.readsIntercepted}`,
               `  Estimated saved   : ${bytesSavedFormatted}`,
+              `  Squeeze saved     : ${squeezeSavedFormatted}`,
               `  Pre-flight errors : ${summary.preFlightErrorsCaught}`,
               "",
             );
@@ -121,6 +131,42 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
             values: ["on", "off"],
           },
           {
+            id: "logSqueeze",
+            label: "Squeeze large .log/.txt files",
+            currentValue: mutableSettings.enableLogSqueeze ? "on" : "off",
+            values: ["on", "off"],
+          },
+          {
+            id: "indexRefresh",
+            label: "Mark search index stale after edits",
+            currentValue: mutableSettings.enableIndexRefresh ? "on" : "off",
+            values: ["on", "off"],
+          },
+          {
+            id: "sessionSeed",
+            label: "Seed session with repo digest",
+            currentValue: mutableSettings.enableSessionSeed ? "on" : "off",
+            values: ["on", "off"],
+          },
+          {
+            id: "sessionSeedBudget",
+            label: "Session seed budget (tokens)",
+            currentValue: formatPreset(CONTEXT_BUDGET_PRESETS, mutableSettings.sessionSeedBudget),
+            values: presetValues(CONTEXT_BUDGET_PRESETS, mutableSettings.sessionSeedBudget),
+          },
+          {
+            id: "sessionSeedScope",
+            label: "Session seed scope",
+            currentValue: mutableSettings.sessionSeedScope,
+            values: ["root", "cwd"],
+          },
+          {
+            id: "cyclePreflight",
+            label: "Post-edit import-cycle check",
+            currentValue: mutableSettings.enableCyclePreflight ? "on" : "off",
+            values: ["on", "off"],
+          },
+          {
             id: "threshold",
             label: "File size threshold (lines)",
             currentValue: String(mutableSettings.fileSizeThresholdLines),
@@ -138,6 +184,12 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
             currentValue: formatPreset(GRAPH_MAX_EDGES_PRESETS, mutableSettings.graphMaxEdges),
             values: presetValues(GRAPH_MAX_EDGES_PRESETS, mutableSettings.graphMaxEdges),
           },
+          {
+            id: "searchSnippetBudget",
+            label: "Search snippet budget (tokens)",
+            currentValue: formatPreset(SEARCH_SNIPPET_BUDGET_PRESETS, mutableSettings.searchSnippetBudget),
+            values: presetValues(SEARCH_SNIPPET_BUDGET_PRESETS, mutableSettings.searchSnippetBudget),
+          },
         ];
 
         const settingsList = new SettingsList(
@@ -152,6 +204,24 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
               case "preFlightChecks":
                 mutableSettings.enablePreFlightSyntaxChecks = newValue === "on";
                 break;
+              case "logSqueeze":
+                mutableSettings.enableLogSqueeze = newValue === "on";
+                break;
+              case "indexRefresh":
+                mutableSettings.enableIndexRefresh = newValue === "on";
+                break;
+              case "sessionSeed":
+                mutableSettings.enableSessionSeed = newValue === "on";
+                break;
+              case "sessionSeedBudget":
+                mutableSettings.sessionSeedBudget = parsePresetLabel(newValue);
+                break;
+              case "sessionSeedScope":
+                mutableSettings.sessionSeedScope = newValue === "cwd" ? "cwd" : "root";
+                break;
+              case "cyclePreflight":
+                mutableSettings.enableCyclePreflight = newValue === "on";
+                break;
               case "threshold":
                 mutableSettings.fileSizeThresholdLines = Number.parseInt(newValue, 10);
                 break;
@@ -160,6 +230,9 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
                 break;
               case "graphMaxEdges":
                 mutableSettings.graphMaxEdges = parsePresetLabel(newValue);
+                break;
+              case "searchSnippetBudget":
+                mutableSettings.searchSnippetBudget = parsePresetLabel(newValue);
                 break;
             }
             await settings.save(ctx.cwd, mutableSettings);
@@ -214,12 +287,24 @@ export function registerAstGainCommand(pi: ExtensionAPI, manager: StatsManager):
           render(_width: number): string[] {
             const tokensSaved = formatTokens(summary.totalBytesSaved);
             const bytesSavedFormatted = formatBytesHuman(summary.totalBytesSaved);
+            const squeezeTokensSaved = formatTokens(summary.totalSqueezeBytesSaved);
+            const squeezeBytesSavedFormatted = formatBytesHuman(summary.totalSqueezeBytesSaved);
+            const seedCostFormatted = formatBytesHuman(summary.totalSessionSeedCost);
+            const seedSavingsFormatted = formatBytesHuman(summary.totalSessionSeedSavings);
+            const seedRoi = summary.totalSessionSeedCost > 0
+              ? ((summary.totalSessionSeedSavings - summary.totalSessionSeedCost) / summary.totalSessionSeedCost * 100).toFixed(0)
+              : "0";
+
             const lines = [
               theme.fg("accent", "AST-BRO GAIN HIGHSCORES"),
               "",
-              `  Lifetime Savings:   ~${tokensSaved} Tokens  (${bytesSavedFormatted})`,
-              `  Intercepts:         ${summary.totalReadsIntercepted} large files skipped`,
-              `  Saved from errors:  ${summary.totalPreFlightErrorsCaught} syntax errors caught`,
+              `  Lifetime Savings:     ~${tokensSaved} Tokens  (${bytesSavedFormatted})`,
+              `  Intercepts:           ${summary.totalReadsIntercepted} large files skipped`,
+              `  Log/text squeeze:     ~${squeezeTokensSaved} Tokens  (${squeezeBytesSavedFormatted})`,
+              `  Saved from errors:    ${summary.totalPreFlightErrorsCaught} syntax errors caught`,
+              `  Session seed cost:    ${seedCostFormatted}`,
+              `  Session seed savings: ${seedSavingsFormatted}`,
+              `  Session seed ROI:     ${seedRoi}%`,
               "",
               "  Recent Activity (Last 100 actions):",
               "",
@@ -234,6 +319,9 @@ export function registerAstGainCommand(pi: ExtensionAPI, manager: StatsManager):
                 if (entry.type === "read") {
                   const savedTokens = formatTokens(entry.bytesSaved ?? 0);
                   lines.push(`  [${time}] read(${rel})  -> Saved ~${savedTokens} Tokens`);
+                } else if (entry.type === "squeeze") {
+                  const savedTokens = formatTokens(entry.bytesSaved ?? 0);
+                  lines.push(`  [${time}] squeeze(${rel})  -> Saved ~${savedTokens} Tokens`);
                 } else {
                   lines.push(`  [${time}] edit(${rel})  -> ${entry.message ?? "Prevented SyntaxError"}`);
                 }

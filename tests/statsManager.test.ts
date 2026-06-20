@@ -41,6 +41,9 @@ describe("StatsManager", () => {
         bytesSaved: 900,
         readsIntercepted: 1,
         preFlightErrorsCaught: 1,
+        squeezeBytesSaved: 0,
+        sessionSeedCost: 0,
+        sessionSeedSavings: 0,
       });
     });
 
@@ -135,6 +138,45 @@ describe("StatsManager", () => {
       expect(written.history).toHaveLength(100);
       expect(written.history[0].path).toContain("file5");
       expect(written.history[99].path).toContain("file104");
+    });
+  });
+
+  describe("migration-safe schema", () => {
+    it("loads pre-existing stats.json without the new squeeze/seed fields", async () => {
+      useFiles({
+        [STATS_PATH]: JSON.stringify({
+          totalBytesSaved: 100,
+          totalReadsIntercepted: 5,
+          totalPreFlightErrorsCaught: 1,
+          history: [],
+        }),
+      });
+      const manager = new StatsManager("/project", { saveDelayMs: 10_000 });
+      manager.addSqueezeSavings("/project/app.log", 1000, 100);
+      await manager.flush();
+
+      const written = lastWritten(STATS_PATH) as unknown as {
+        totalSqueezeBytesSaved: number;
+        totalSessionSeedCost: number;
+        totalSessionSeedSavings: number;
+      };
+      expect(written.totalSqueezeBytesSaved).toBe(900);
+      expect(written.totalSessionSeedCost).toBe(0);
+      expect(written.totalSessionSeedSavings).toBe(0);
+    });
+
+    it("tracks squeeze savings and session-seed ROI separately", async () => {
+      useFiles({});
+      const manager = new StatsManager("/project", { saveDelayMs: 10_000 });
+      manager.addSqueezeSavings("/project/app.log", 1000, 100);
+      manager.recordSessionSeedCost(500);
+      manager.recordSessionSeedSavings(700);
+      await manager.flush();
+
+      const summary = manager.getSessionSummary();
+      expect(summary.squeezeBytesSaved).toBe(900);
+      expect(summary.sessionSeedCost).toBe(500);
+      expect(summary.sessionSeedSavings).toBe(700);
     });
   });
 

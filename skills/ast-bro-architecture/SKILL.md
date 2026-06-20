@@ -19,17 +19,9 @@ Use this skill when the user asks high-level structural questions such as:
 - "How does this symbol work?"
 
 The goal is to stay on the AST-first path and avoid reading many whole files
-sequentially.
-
-## AST-first decision tree
-
-| Question type | First tool | Then | Finally |
-|---|---|---|---|
-| Architecture / module relationships / coupling | `analyze_ast_graph` | `analyze_ast_map` on key modules | targeted `read` for business-rule details |
-| Where is a symbol used? | `analyze_ast_impact` | `analyze_ast_search` (use `mode: summary` for many hits) | targeted `read` |
-| Trait/interface implementations | `find_implementations` | `analyze_ast_context` on results | targeted `read` |
-| How does a specific symbol/file work? | `analyze_ast_context` | `analyze_ast_search` (use `mode: summary`) | targeted `read` |
-| Locate a pattern or name | `analyze_ast_search` (use `mode: summary` when scanning many files) | `analyze_ast_context` or `read` with `offset`/`limit` | — |
+sequentially. For the exact tool surface and per-tool capabilities, see the tool
+metadata or the README. This skill focuses on the pi-ast-bro-specific
+orchestration rules.
 
 ## Reflection rule
 
@@ -43,7 +35,7 @@ a specific business-rule implementation detail.
 ### Architecture / bounded-context / aggregate relationships
 
 1. Call `analyze_ast_graph` on the crate or project root.
-   - If the output is truncated (`truncated: true`), raise `graphMaxEdges` via
+   - If the output is truncated (`truncated: true`), raise `graphMaxEdges` in
      `/ast` or focus on a smaller sub-path.
 2. Identify the modules/aggregates that matter.
 3. Call `analyze_ast_map` on those files to get their top-level structure.
@@ -62,18 +54,7 @@ a specific business-rule implementation detail.
    - If the result is too short, raise the `budget` parameter or increase
      `contextDefaultBudget` in `/ast`.
 2. Use `analyze_ast_search` with `mode: summary` to locate callers/implementers.
+   - If `analyze_ast_search` snippets are truncated, raise `searchSnippetBudget`
+     in `/ast` or switch to `mode: summary` for a compact map.
 3. Fall back to `read` with explicit `offset`/`limit` only for exact source
    regions required for edits.
-
-## Tool reference
-
-- `analyze_ast_graph` — compact file/module dependency graph; start here for
-  architecture.
-- `analyze_ast_map` — hierarchical AST block of a file or symbol; use for
-  structure.
-- `analyze_ast_context` — token-budgeted focused context for a symbol or file;
-  use before whole-file reads.
-- `analyze_ast_search` — hybrid BM25 + semantic search. Use `mode: summary` for
-  a grouped hit map by file and line range.
-- `analyze_ast_impact` — cross-file caller/callee impact for a symbol.
-- `find_implementations` — trait/interface/base-class implementations.

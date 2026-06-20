@@ -187,6 +187,13 @@ Settings are stored per project at `.pi/plugins/ast-bro/settings.json` and edite
 | `enablePreFlightSyntaxChecks` | `true` | Run `ast-bro map` after edits/writes and mark the result as an error on failure. |
 | `graphMaxEdges` | `500` | Maximum edges returned by `analyze_ast_graph`; larger graphs are truncated. |
 | `contextDefaultBudget` | `4000` | Default token budget for `analyze_ast_context`. |
+| `enableLogSqueeze` | `false` | Replace large `.log`/`.txt` reads with `ast-bro squeeze` output. |
+| `enableIndexRefresh` | `false` | Mark the `ast-bro` search index stale after successful `edit`/`write`. |
+| `enableSessionSeed` | `false` | Inject an `ast-bro digest` repo map at session start. Default off to keep token savings unconditional. |
+| `sessionSeedBudget` | `4000` | Token budget for the session-start digest; oversized output is trimmed and annotated. |
+| `sessionSeedScope` | `"root"` | Scope of the digest: `root` (whole repo) or `cwd` (current working directory). |
+| `enableCyclePreflight` | `false` | Run `ast-bro cycles` after edits and flag newly detected import cycles. |
+| `searchSnippetBudget` | `8000` | Approximate-token ceiling for `analyze_ast_search` snippet output; lowest-ranked hits are dropped first. |
 
 Example:
 
@@ -197,9 +204,50 @@ Example:
   "fileSizeThresholdLines": 500,
   "enablePreFlightSyntaxChecks": true,
   "graphMaxEdges": 500,
-  "contextDefaultBudget": 4000
+  "contextDefaultBudget": 4000,
+  "enableLogSqueeze": false,
+  "enableIndexRefresh": false,
+  "enableSessionSeed": false,
+  "sessionSeedBudget": 4000,
+  "sessionSeedScope": "root",
+  "enableCyclePreflight": false,
+  "searchSnippetBudget": 8000
 }
 ```
+
+## Choosing an approach
+
+Not every workflow needs this extension. The table below compares three ways to get AST-aware help from `ast-bro`:
+
+| | `pi-ast-bro` extension | Upstream `ast-bro` `SKILL.md` | Managed indexing / graph tools (Copilot, Claude, Aider, Hermes) |
+|---|---|---|---|
+| **Tool lifecycle interception** | Yes — intercepts `read`, `edit`, and `write` inside Pi. | No — the agent must remember to invoke tools. | Varies; usually ambient or via IDE integration. |
+| **Output filtering** | Yes — per-tool ceilings (`graphMaxEdges`, `contextDefaultBudget`, `searchSnippetBudget`), exact-snippet augmentation, and `attention_required` batch pivoting. | Up to the upstream skill prompt; typically raw tool output. | Often managed server-side; usually opaque to the user. |
+| **Index freshness / proactivity** | Optional background index refresh after edits (`enableIndexRefresh`) and explicit `/ast` controls. | Depends on the host running `ast-bro index` when needed. | Managed by provider; generally fresh but opaque. |
+| **Cross-agent support** | **No** — Pi only. | **Yes** — works with any agent that can read the skill and run `ast-bro`. | **Yes** — built into editors/hosts. |
+| **Privacy / local-only** | Yes — runs your local `ast-bro` binary; no remote indexing required. | Yes — same local `ast-bro` binary. | Usually not; code or embeddings may leave the machine. |
+| **Setup effort** | Medium — install Pi, extension, and `ast-bro`. | Low-Medium — install `ast-bro` and load the skill into your agent. | Lowest — sign in and enable the integration. |
+| **Token cost (definition vs. output)** | Fixed tool-definition cost per Pi session; output is filtered per call, so per-call cost is bounded. | Skill text is sent as context; output is unfiltered, so a large result can consume many tokens. | Definition cost is usually hidden; output tokens are charged per request, often without user-visible caps. |
+
+Where the other approaches are stronger:
+
+- **Upstream `ast-bro` skill / MCP** is the better choice if you do not use Pi or want the same tooling across multiple agents. It also has no Pi-extension version coupling.
+- **Managed indexing / graph tools** win on cross-agent/editor integration, zero local setup, and automatic index freshness. They are appropriate when you are comfortable with cloud-side processing and do not need explicit token budgets.
+
+Use `pi-ast-bro` when you want Pi-native interception, explicit output budgets, and the `exact_snippet` → `edit` workflow.
+
+## Deliberately not wrapped
+
+The extension intentionally does not register tools for every `ast-bro` command. The goal is a curated tool surface that avoids tool-confusion and schema-token bloat:
+
+| Command | Reason it is not wrapped |
+|---|---|
+| `callers` / `callees` | Covered by `analyze_ast_impact`, which combines caller/callee/reverse-deps analysis with exact source snippets. |
+| `show` | Covered by `analyze_ast_context` (focused symbol context) and `analyze_ast_map` (hierarchical block). |
+| `deps` / `reverse-deps` | Covered coarsely by `analyze_ast_graph`; adding separate forward/reverse traversal tools would duplicate the dependency view. |
+| `run` | Mutates files using pattern matching and bypasses the pre-flight syntax gate. Excluded for security per the project guidelines. |
+
+If you need these commands, invoke `ast-bro` directly via `bash` or use the upstream `ast-bro mcp` server.
 
 ## Documentation
 

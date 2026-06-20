@@ -28,6 +28,21 @@ export const SettingsSchema = Type.Object(
       default: 4000,
       minimum: 500,
     }),
+    enableLogSqueeze: Type.Boolean({ default: false }),
+    enableIndexRefresh: Type.Boolean({ default: false }),
+    enableSessionSeed: Type.Boolean({ default: false }),
+    sessionSeedBudget: Type.Number({
+      default: 4000,
+      minimum: 500,
+    }),
+    sessionSeedScope: Type.Union([Type.Literal("cwd"), Type.Literal("root")], {
+      default: "root",
+    }),
+    enableCyclePreflight: Type.Boolean({ default: false }),
+    searchSnippetBudget: Type.Number({
+      default: 8000,
+      minimum: 500,
+    }),
   },
   { additionalProperties: false },
 );
@@ -45,6 +60,13 @@ export class SettingsManager {
       enablePreFlightSyntaxChecks: true,
       graphMaxEdges: 500,
       contextDefaultBudget: 4000,
+      enableLogSqueeze: false,
+      enableIndexRefresh: false,
+      enableSessionSeed: false,
+      sessionSeedBudget: 4000,
+      sessionSeedScope: "root",
+      enableCyclePreflight: false,
+      searchSnippetBudget: 8000,
     };
   }
 
@@ -106,6 +128,20 @@ export class SettingsManager {
         typeof p.contextDefaultBudget === "number" && p.contextDefaultBudget >= 500
           ? p.contextDefaultBudget
           : defaults.contextDefaultBudget,
+      enableLogSqueeze: typeof p.enableLogSqueeze === "boolean" ? p.enableLogSqueeze : defaults.enableLogSqueeze,
+      enableIndexRefresh: typeof p.enableIndexRefresh === "boolean" ? p.enableIndexRefresh : defaults.enableIndexRefresh,
+      enableSessionSeed: typeof p.enableSessionSeed === "boolean" ? p.enableSessionSeed : defaults.enableSessionSeed,
+      sessionSeedBudget:
+        typeof p.sessionSeedBudget === "number" && p.sessionSeedBudget >= 500
+          ? p.sessionSeedBudget
+          : defaults.sessionSeedBudget,
+      sessionSeedScope: p.sessionSeedScope === "cwd" || p.sessionSeedScope === "root" ? p.sessionSeedScope : defaults.sessionSeedScope,
+      enableCyclePreflight:
+        typeof p.enableCyclePreflight === "boolean" ? p.enableCyclePreflight : defaults.enableCyclePreflight,
+      searchSnippetBudget:
+        typeof p.searchSnippetBudget === "number" && p.searchSnippetBudget >= 500
+          ? p.searchSnippetBudget
+          : defaults.searchSnippetBudget,
     };
   }
 }

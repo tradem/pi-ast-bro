@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFileSync, statSync } from "node:fs";
 import { formatBytesHuman, type StatsManager } from "./statsManager.js";
+import type { SettingsManager } from "./config.js";
 import {
   isAstBroAvailable,
   isPathSafe,
@@ -21,7 +22,7 @@ import {
  * `analyze_ast_impact` is registered separately in {@link registerRefactoringTools}
  * because it augments the CLI output with exact-match source snippets.
  */
-export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
+export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings: SettingsManager): void {
   pi.registerTool({
     name: "analyze_ast_map",
     label: "AST Map",
@@ -143,23 +144,35 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
         };
       }
 
+      const mode = params.mode ?? "snippets";
+      let output = result.stdout || "";
+
       if (result.status === 0 && typeof ctx?.cwd === "string") {
-        recordSearchSavings(result.stdout || "", ctx.cwd, stats, ctx);
+        if (mode === "snippets") {
+          try {
+            const config = await settings.load(ctx.cwd);
+            const trimmed = trimSearchSnippets(output, config.searchSnippetBudget);
+            output = trimmed.output;
+          } catch {
+            // Keep raw output if settings could not be loaded.
+          }
+        }
+        recordSearchSavings(output, ctx.cwd, stats, ctx);
       }
 
-      if (result.status !== 0 || params.mode !== "summary") {
+      if (result.status !== 0 || mode !== "summary") {
         return {
-          content: [{ type: "text", text: result.stdout || result.stderr }],
+          content: [{ type: "text", text: output || result.stderr }],
           isError: result.status !== 0,
           details: { exitCode: result.status },
         };
       }
 
-      const summary = parseSearchSummary(result.stdout || "");
+      const summary = parseSearchSummary(output);
       if (!summary) {
         // Fallback to raw stdout when headers cannot be parsed.
         return {
-          content: [{ type: "text", text: result.stdout || result.stderr }],
+          content: [{ type: "text", text: output || result.stderr }],
           isError: false,
           details: { exitCode: result.status },
         };
@@ -172,6 +185,79 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager): void {
       };
     },
   });
+}
+
+export interface TrimmedSearchResult {
+  output: string;
+  truncated: boolean;
+  omittedHits: number;
+}
+
+const SEARCH_HIT_HEADER = /^(.+?):(\d+)-(\d+)(?:\s|$)/;
+
+/**
+ * Split `ast-bro search` stdout into individual hits.
+ *
+ * Each hit starts with a header line of the form `path:start-end [...]`
+ * and continues until the next header line.
+ */
+function splitSearchHits(stdout: string): string[] {
+  const hits: string[] = [];
+  const lines = stdout.split("\n");
+  let current: string[] = [];
+
+  for (const line of lines) {
+    if (SEARCH_HIT_HEADER.test(line)) {
+      if (current.length > 0) {
+        hits.push(current.join("\n"));
+        current = [];
+      }
+    }
+    current.push(line);
+  }
+
+  if (current.length > 0) {
+    hits.push(current.join("\n"));
+  }
+
+  return hits;
+}
+
+/**
+ * Trim `ast-bro search` snippet output to a byte budget derived from
+ * approximate tokens, dropping lowest-ranked hits first.
+ *
+ * Returns the (possibly unchanged) output, a truncation flag, and the
+ * count of omitted hits.
+ */
+export function trimSearchSnippets(stdout: string, budgetTokens: number): TrimmedSearchResult {
+  const budgetBytes = budgetTokens * 4;
+  if (Buffer.byteLength(stdout, "utf-8") <= budgetBytes) {
+    return { output: stdout, truncated: false, omittedHits: 0 };
+  }
+
+  const hits = splitSearchHits(stdout);
+  if (hits.length === 0) {
+    return { output: stdout, truncated: false, omittedHits: 0 };
+  }
+
+  let kept = hits;
+  while (
+    kept.length > 1 &&
+    Buffer.byteLength(kept.join("\n"), "utf-8") > budgetBytes
+  ) {
+    kept = kept.slice(0, -1);
+  }
+
+  const keptOutput = kept.join("\n");
+  const omitted = hits.length - kept.length;
+  if (omitted === 0) {
+    return { output: keptOutput, truncated: false, omittedHits: 0 };
+  }
+
+  const annotation =
+    `\n\n[pi-ast-bro: search results trimmed to fit ${budgetTokens} token budget; ${omitted} additional hit${omitted === 1 ? "" : "s"} omitted]`;
+  return { output: keptOutput + annotation, truncated: true, omittedHits: omitted };
 }
 
 interface SearchSummary {
