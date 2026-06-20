@@ -42,7 +42,7 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 - `.ts`, `.tsx` (TypeScript)
 - `.py` (Python)
 
-`.dart` is no longer enabled by default because `ast-bro` requires local configuration for Dart support. You can add it back (or any other extension `ast-bro` handles) in the `/ast` dashboard or in the settings file.
+`.dart` is no longer enabled by default because `ast-bro` apparently lacks support of [Dart](https://dart.dev/) / Flutter for now.
 
 ## Installation
 
