@@ -1,6 +1,6 @@
 {
   "name": "pi-ast-bro",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "description": "Pi extension integrating the ast-bro CLI for AST-based context saving and pre-flight syntax checks.",
   "type": "module",
   "main": "./src/index.ts",

@@ -165,6 +165,7 @@ All settings are defined in `src/config.ts` (`SettingsSchema`) and exposed in th
 | `sessionSeedScope` | `"root"` | `src/index.ts` | Scope of the digest: `root` (whole repo) or `cwd` (current working directory). |
 | `enableCyclePreflight` | `false` | `interceptors.ts` | Run `ast-bro cycles` after edits and flag newly detected import cycles. |
 | `searchSnippetBudget` | `8000` | `src/tools.ts` | Approximate-token ceiling for `analyze_ast_search` snippet output; lowest-ranked hits are dropped first. |
+| `progressUpdateThrottleMs` | `100` | `src/utils.ts` | Minimum interval between phase-based tool progress updates surfaced via the SDK `onUpdate` callback. `0` disables throttling. |
 
 ## Security notes
 

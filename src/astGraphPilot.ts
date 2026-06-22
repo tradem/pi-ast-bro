@@ -1,8 +1,15 @@
 import { resolve } from "node:path";
 import { Type, type Static } from "typebox";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SettingsManager } from "./config.js";
-import { isAstBroAvailable, isPathSafe, runAstBroAsync } from "./utils.js";
+import {
+  createProgressThrottle,
+  isAstBroAvailable,
+  isPathSafe,
+  progressPayload,
+  runAstBroAsync,
+  type ProgressDetails,
+} from "./utils.js";
 
 /**
  * TypeBox schema for the AST graph pilot tool.
@@ -112,7 +119,7 @@ export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager
       _toolCallId: string,
       params: AnalyzeAstGraphParams,
       signal: AbortSignal | undefined,
-      _onUpdate: unknown,
+      onUpdate: AgentToolUpdateCallback | undefined,
       ctx: ExtensionContext,
     ) {
       if (!isAstBroAvailable()) {
@@ -131,31 +138,40 @@ export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager
         return errorResult("No valid working directory available to scope the graph.");
       }
 
-      const result = await runAstBroGraph(resolvedPath, signal);
-      if (!result) {
-        return errorResult("Failed to run ast-bro graph.");
-      }
-
-      if (signal?.aborted) {
-        return errorResult("ast-bro graph aborted.");
-      }
-
-      if (result.status !== 0) {
-        return {
-          content: [{ type: "text", text: result.stdout || result.stderr }],
-          isError: true,
-          details: { exitCode: result.status },
-        };
-      }
-
       const config = await settings.load(ctx.cwd);
-      const formatted = truncateGraph(result.stdout, config.graphMaxEdges);
+      const throttle = createProgressThrottle(config.progressUpdateThrottleMs, onUpdate);
 
-      return {
-        content: [{ type: "text", text: formatted.text }],
-        isError: false,
-        details: { exitCode: 0 },
-      };
+      try {
+        throttle.progress(progressPayload("starting", "starting ast-bro graph…"));
+        const result = await runAstBroGraph(resolvedPath, signal);
+        throttle.progress(progressPayload("querying", "querying ast-bro graph…"));
+
+        if (!result) {
+          return errorResult("Failed to run ast-bro graph.");
+        }
+
+        if (signal?.aborted) {
+          return errorResult("ast-bro graph aborted.");
+        }
+
+        if (result.status !== 0) {
+          return {
+            content: [{ type: "text", text: result.stdout || result.stderr }],
+            isError: true,
+            details: { exitCode: result.status },
+          };
+        }
+
+        const formatted = truncateGraph(result.stdout, config.graphMaxEdges);
+
+        return {
+          content: [{ type: "text", text: formatted.text }],
+          isError: false,
+          details: { exitCode: 0 },
+        };
+      } finally {
+        throttle.flush();
+      }
     },
-  });
+  } as ToolDefinition<any, any, any>);
 }

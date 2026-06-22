@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerAstTools } from "../src/tools.js";
 import { registerRefactoringTools } from "../src/astBroTools.js";
+import { SettingsManager } from "../src/config.js";
 import { StatsManager } from "../src/statsManager.js";
 import { clearAstBroInfoCache, runAstBroAsync } from "../src/utils.js";
 import { createMockSpawnChild, emitSpawnError, emitSpawnResponse } from "./spawnMocks.js";
@@ -209,7 +210,8 @@ describe("savings-recording invariant", () => {
     const stats = new StatsManager("");
     const addSpy = vi.spyOn(stats, "addReadSavings");
     const pi = createMockPi();
-    registerRefactoringTools(pi, stats);
+    const settings = new SettingsManager();
+    registerRefactoringTools(pi, stats, settings);
 
     const tool = getTool(pi, "analyze_ast_impact");
     const result = (await tool.execute(

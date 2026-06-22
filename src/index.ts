@@ -112,7 +112,7 @@ function initializeExtension(pi: ExtensionAPI): void {
 
   // Register explicit agent tools and the interactive dashboards first so they
   // are available regardless of whether the binary is installed.
-  registerRefactoringTools(pi, stats);
+  registerRefactoringTools(pi, stats, settings);
   registerAstTools(pi, stats, settings);
   registerAstContextTool(pi, settings);
   registerAstGraphTool(pi, settings);

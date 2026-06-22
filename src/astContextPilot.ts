@@ -1,7 +1,14 @@
 import { Type, type Static } from "typebox";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SettingsManager } from "./config.js";
-import { isAstBroAvailable, isPathSafe, runAstBroAsync } from "./utils.js";
+import {
+  createProgressThrottle,
+  isAstBroAvailable,
+  isPathSafe,
+  progressPayload,
+  runAstBroAsync,
+  type ProgressDetails,
+} from "./utils.js";
 
 /**
  * TypeBox schema for the AST context pilot tool.
@@ -96,7 +103,7 @@ export function registerAstContextTool(pi: ExtensionAPI, settings: SettingsManag
       _toolCallId: string,
       params: AnalyzeAstContextParams,
       signal: AbortSignal | undefined,
-      _onUpdate: unknown,
+      onUpdate: AgentToolUpdateCallback | undefined,
       ctx: ExtensionContext,
     ) {
       if (!isAstBroAvailable()) {
@@ -117,21 +124,29 @@ export function registerAstContextTool(pi: ExtensionAPI, settings: SettingsManag
 
       const config = await settings.load(ctx.cwd);
       const budget = params.budget ?? config.contextDefaultBudget;
+      const throttle = createProgressThrottle(config.progressUpdateThrottleMs, onUpdate);
 
-      const result = await runAstBroContext(params.path, params.target, budget, signal);
-      if (!result) {
-        return errorResult("Failed to run ast-bro context.");
+      try {
+        throttle.progress(progressPayload("starting", "starting ast-bro context…"));
+        const result = await runAstBroContext(params.path, params.target, budget, signal);
+        throttle.progress(progressPayload("querying", "querying ast-bro context…"));
+
+        if (!result) {
+          return errorResult("Failed to run ast-bro context.");
+        }
+
+        if (signal?.aborted) {
+          return errorResult("ast-bro context aborted.");
+        }
+
+        return {
+          content: [{ type: "text", text: result.stdout || result.stderr }],
+          isError: result.status !== 0,
+          details: { exitCode: result.status },
+        };
+      } finally {
+        throttle.flush();
       }
-
-      if (signal?.aborted) {
-        return errorResult("ast-bro context aborted.");
-      }
-
-      return {
-        content: [{ type: "text", text: result.stdout || result.stderr }],
-        isError: result.status !== 0,
-        details: { exitCode: result.status },
-      };
     },
-  });
+  } as ToolDefinition<any, any, any>);
 }

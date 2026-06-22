@@ -204,6 +204,7 @@ Settings are stored per project at `.pi/plugins/ast-bro/settings.json` and edite
 | `sessionSeedScope` | `"root"` | Scope of the digest: `root` (whole repo) or `cwd` (current working directory). |
 | `enableCyclePreflight` | `false` | Run `ast-bro cycles` after edits and flag newly detected import cycles. |
 | `searchSnippetBudget` | `8000` | Approximate-token ceiling for `analyze_ast_search` snippet output; lowest-ranked hits are dropped first. |
+| `progressUpdateThrottleMs` | `100` | Minimum interval between on-tool progress updates (ms). `0` disables throttling. |
 
 Example:
 
@@ -252,7 +253,8 @@ Example:
   "sessionSeedBudget": 4000,
   "sessionSeedScope": "root",
   "enableCyclePreflight": false,
-  "searchSnippetBudget": 8000
+  "searchSnippetBudget": 8000,
+  "progressUpdateThrottleMs": 100
 }
 ```
 

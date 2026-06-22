@@ -1,14 +1,17 @@
 import { Type } from "typebox";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { readFile, stat } from "node:fs/promises";
 import { formatBytesHuman, type StatsManager } from "./statsManager.js";
 import type { SettingsManager } from "./config.js";
 import {
+  createProgressThrottle,
   isAstBroAvailable,
   isPathSafe,
+  progressPayload,
   resolveExistingFilePath,
   runAstBroAsync,
   runAstBroSearch,
+  type ProgressDetails,
 } from "./utils.js";
 
 /**
@@ -41,7 +44,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
       _toolCallId: string,
       params: { path: string },
       signal: AbortSignal | undefined,
-      _onUpdate: unknown,
+      onUpdate: AgentToolUpdateCallback | undefined,
       ctx: ExtensionContext,
     ) {
       if (!isAstBroAvailable()) {
@@ -61,47 +64,65 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
         };
       }
 
-      const result = await runAstBroAsync(["map", path], { signal, timeoutMs: 30_000 });
-      if (!result) {
-        return {
-          content: [{ type: "text", text: "Failed to run ast-bro map." }],
-          isError: true,
-          details: undefined,
-        };
-      }
+      const config = await settings.load(ctx.cwd);
+      const throttle = createProgressThrottle(config.progressUpdateThrottleMs, onUpdate);
 
-      if (signal?.aborted) {
-        return {
-          content: [{ type: "text", text: "ast-bro map aborted." }],
-          isError: true,
-          details: undefined,
-        };
-      }
+      try {
+        throttle.progress(progressPayload("starting", "starting ast-bro map…"));
+        const result = await runAstBroAsync(["map", path], { signal, timeoutMs: 30_000 });
+        throttle.progress(progressPayload("querying", "querying ast-bro map…"));
 
-      if (result.status === 0 && typeof ctx?.cwd === "string") {
-        const resolved = resolveExistingFilePath(ctx.cwd, path);
-        if (resolved) {
-          try {
-            const original = await readFile(resolved, "utf-8");
-            const output = result.stdout || "";
-            stats.addReadSavings(
-              resolved,
-              Buffer.byteLength(original, "utf-8"),
-              Buffer.byteLength(output, "utf-8"),
-            );
-          } catch {
-            // Fall back to not recording stats on read failure.
+        if (!result) {
+          return {
+            content: [{ type: "text", text: "Failed to run ast-bro map." }],
+            isError: true,
+            details: undefined,
+          };
+        }
+
+        if (signal?.aborted) {
+          return {
+            content: [{ type: "text", text: "ast-bro map aborted." }],
+            isError: true,
+            details: undefined,
+          };
+        }
+
+        if (result.status === 0 && typeof ctx?.cwd === "string") {
+          const resolved = resolveExistingFilePath(ctx.cwd, path);
+          if (resolved) {
+            try {
+              const original = await readFile(resolved, "utf-8");
+              const output = result.stdout || "";
+              throttle.progress(
+                progressPayload(
+                  "augmenting",
+                  "augmenting ast-bro map…",
+                  1,
+                  1,
+                ),
+              );
+              stats.addReadSavings(
+                resolved,
+                Buffer.byteLength(original, "utf-8"),
+                Buffer.byteLength(output, "utf-8"),
+              );
+            } catch {
+              // Fall back to not recording stats on read failure.
+            }
           }
         }
-      }
 
-      return {
-        content: [{ type: "text", text: result.stdout || result.stderr }],
-        isError: result.status !== 0,
-        details: { exitCode: result.status },
-      };
+        return {
+          content: [{ type: "text", text: result.stdout || result.stderr }],
+          isError: result.status !== 0,
+          details: { exitCode: result.status },
+        };
+      } finally {
+        throttle.flush();
+      }
     },
-  });
+  } as ToolDefinition<any, any, any>);
 
   pi.registerTool({
     name: "analyze_ast_search",
@@ -132,7 +153,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
       _toolCallId: string,
       params: { query: string; top_k?: number; mode?: "snippets" | "summary" },
       signal: AbortSignal | undefined,
-      _onUpdate: unknown,
+      onUpdate: AgentToolUpdateCallback | undefined,
       ctx: ExtensionContext,
     ) {
       if (!isAstBroAvailable()) {
@@ -143,64 +164,77 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
         };
       }
 
-      const result = await runAstBroSearch(params.query, { topK: params.top_k, signal });
-      if (!result) {
-        return {
-          content: [{ type: "text", text: "Failed to run ast-bro search." }],
-          isError: true,
-          details: undefined,
-        };
-      }
+      const config = await settings.load(ctx.cwd);
+      const throttle = createProgressThrottle(config.progressUpdateThrottleMs, onUpdate);
 
-      if (signal?.aborted) {
-        return {
-          content: [{ type: "text", text: "ast-bro search aborted." }],
-          isError: true,
-          details: undefined,
-        };
-      }
+      try {
+        throttle.progress(progressPayload("starting", "starting ast-bro search…"));
+        const result = await runAstBroSearch(params.query, { topK: params.top_k, signal });
+        throttle.progress(progressPayload("querying", "querying ast-bro search…"));
 
-      const mode = params.mode ?? "snippets";
-      let output = result.stdout || "";
-
-      if (result.status === 0 && typeof ctx?.cwd === "string") {
-        if (mode === "snippets") {
-          try {
-            const config = await settings.load(ctx.cwd);
-            const trimmed = trimSearchSnippets(output, config.searchSnippetBudget);
-            output = trimmed.output;
-          } catch {
-            // Keep raw output if settings could not be loaded.
-          }
+        if (!result) {
+          return {
+            content: [{ type: "text", text: "Failed to run ast-bro search." }],
+            isError: true,
+            details: undefined,
+          };
         }
-        await recordSearchSavings(output, ctx.cwd, stats, ctx);
-      }
 
-      if (result.status !== 0 || mode !== "summary") {
-        return {
-          content: [{ type: "text", text: output || result.stderr }],
-          isError: result.status !== 0,
-          details: { exitCode: result.status },
-        };
-      }
+        if (signal?.aborted) {
+          return {
+            content: [{ type: "text", text: "ast-bro search aborted." }],
+            isError: true,
+            details: undefined,
+          };
+        }
 
-      const summary = parseSearchSummary(output);
-      if (!summary) {
-        // Fallback to raw stdout when headers cannot be parsed.
+        const mode = params.mode ?? "snippets";
+        let output = result.stdout || "";
+
+        if (result.status === 0 && typeof ctx?.cwd === "string") {
+          if (mode === "snippets") {
+            try {
+              const trimmed = trimSearchSnippets(output, config.searchSnippetBudget);
+              output = trimmed.output;
+            } catch {
+              // Keep raw output if settings could not be loaded.
+            }
+          }
+          await recordSearchSavings(output, ctx.cwd, stats, ctx, (current, total) => {
+            throttle.progress(
+              progressPayload("augmenting", `augmenting ${current}/${total}…`, current, total),
+            );
+          });
+        }
+
+        if (result.status !== 0 || mode !== "summary") {
+          return {
+            content: [{ type: "text", text: output || result.stderr }],
+            isError: result.status !== 0,
+            details: { exitCode: result.status },
+          };
+        }
+
+        const summary = parseSearchSummary(output);
+        if (!summary) {
+          // Fallback to raw stdout when headers cannot be parsed.
+          return {
+            content: [{ type: "text", text: output || result.stderr }],
+            isError: false,
+            details: { exitCode: result.status },
+          };
+        }
+
         return {
-          content: [{ type: "text", text: output || result.stderr }],
+          content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
           isError: false,
           details: { exitCode: result.status },
         };
+      } finally {
+        throttle.flush();
       }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
-        isError: false,
-        details: { exitCode: result.status },
-      };
     },
-  });
+  } as ToolDefinition<any, any, any>);
 }
 
 export interface TrimmedSearchResult {
@@ -322,37 +356,45 @@ async function recordSearchSavings(
   cwd: string,
   stats: StatsManager,
   ctx: ExtensionContext,
+  onProgress?: (current: number, total: number) => void,
 ): Promise<void> {
-  const lines = stdout.split("\n");
-  const seenFiles = new Set<string>();
-  let originalBytes = 0;
-
   const headerPattern = /^([A-Za-z]:)?\/?.+?:\d+-\d+\s+\[score/;
+  const seenFiles = new Set<string>();
+  const rawPaths: string[] = [];
 
-  for (const line of lines) {
+  for (const line of stdout.split("\n")) {
     const match = line.match(headerPattern);
     if (!match) continue;
 
     const rawPath = match[0].split(":")[0];
     if (seenFiles.has(rawPath)) continue;
 
+    seenFiles.add(rawPath);
+    rawPaths.push(rawPath);
+  }
+
+  let originalBytes = 0;
+  const total = rawPaths.length;
+
+  for (let i = 0; i < total; i++) {
+    const rawPath = rawPaths[i];
     const resolved = resolveExistingFilePath(cwd, rawPath);
     if (!resolved) continue;
 
-    seenFiles.add(rawPath);
     try {
       const fileStat = await stat(resolved);
       originalBytes += fileStat.size;
     } catch {
       // Ignore files that disappear between listing and stat.
     }
+    onProgress?.(i + 1, total);
   }
 
   const outputBytes = Buffer.byteLength(stdout, "utf-8");
   const savedBytes = Math.max(0, originalBytes - outputBytes);
 
-  if (savedBytes > 0 && seenFiles.size > 0) {
-    const representative = Array.from(seenFiles)[0];
+  if (savedBytes > 0 && rawPaths.length > 0) {
+    const representative = rawPaths[0];
     if (representative) {
       stats.addReadSavings(representative, originalBytes, outputBytes);
       ctx.ui.notify(`ast-bro search: saved ~${formatBytesHuman(savedBytes)} of context`, "info");

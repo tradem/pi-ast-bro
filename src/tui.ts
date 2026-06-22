@@ -190,6 +190,12 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
             currentValue: formatPreset(SEARCH_SNIPPET_BUDGET_PRESETS, mutableSettings.searchSnippetBudget),
             values: presetValues(SEARCH_SNIPPET_BUDGET_PRESETS, mutableSettings.searchSnippetBudget),
           },
+          {
+            id: "progressUpdateThrottleMs",
+            label: "Progress update throttle (ms)",
+            currentValue: String(mutableSettings.progressUpdateThrottleMs),
+            values: ["0", "50", "100", "200", "500", "1000"],
+          },
         ];
 
         const settingsList = new SettingsList(
@@ -233,6 +239,9 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
                 break;
               case "searchSnippetBudget":
                 mutableSettings.searchSnippetBudget = parsePresetLabel(newValue);
+                break;
+              case "progressUpdateThrottleMs":
+                mutableSettings.progressUpdateThrottleMs = Number.parseInt(newValue, 10);
                 break;
             }
             await settings.save(ctx.cwd, mutableSettings);

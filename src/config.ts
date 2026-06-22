@@ -74,6 +74,10 @@ export const SettingsSchema = Type.Object(
       default: 8000,
       minimum: 500,
     }),
+    progressUpdateThrottleMs: Type.Number({
+      default: 100,
+      minimum: 0,
+    }),
   },
   { additionalProperties: false },
 );
@@ -129,6 +133,7 @@ export class SettingsManager {
       sessionSeedScope: "root",
       enableCyclePreflight: false,
       searchSnippetBudget: 8000,
+      progressUpdateThrottleMs: 100,
     };
   }
 
@@ -204,6 +209,10 @@ export class SettingsManager {
         typeof p.searchSnippetBudget === "number" && p.searchSnippetBudget >= 500
           ? p.searchSnippetBudget
           : defaults.searchSnippetBudget,
+      progressUpdateThrottleMs:
+        typeof p.progressUpdateThrottleMs === "number" && p.progressUpdateThrottleMs >= 0
+          ? p.progressUpdateThrottleMs
+          : defaults.progressUpdateThrottleMs,
     };
   }
 }

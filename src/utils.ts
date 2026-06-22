@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 
 export interface AstBroInfo {
   available: boolean;
@@ -13,6 +14,105 @@ interface RunAstBroAsyncOptions {
   cwd?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+}
+
+export type ToolPhase = "starting" | "querying" | "augmenting";
+
+export interface ProgressDetails {
+  phase: ToolPhase;
+  current?: number;
+  total?: number;
+}
+
+export function progressPayload(
+  phase: ToolPhase,
+  statusText: string,
+  current?: number,
+  total?: number,
+): AgentToolResult<ProgressDetails> {
+  return {
+    content: [{ type: "text", text: statusText }],
+    details:
+      current === undefined || total === undefined ? { phase } : { phase, current, total },
+  };
+}
+
+export interface ProgressThrottle {
+  progress(payload: AgentToolResult<ProgressDetails>): void;
+  flush(): void;
+}
+
+/**
+ * Create a bash-style throttled progress emitter.
+ *
+ * If `onUpdate` is undefined the returned helper is a no-op (no timers, no
+ * allocations). Otherwise repeated `progress()` calls within `throttleMs`
+ * coalesce: only the latest payload is held and emitted when the window
+ * expires. `flush()` forces any held payload out immediately and should be
+ * called just before `execute()` returns.
+ */
+export function createProgressThrottle(
+  throttleMs: number,
+  onUpdate: AgentToolUpdateCallback<ProgressDetails> | undefined,
+): ProgressThrottle {
+  if (!onUpdate) {
+    return {
+      progress: () => undefined,
+      flush: () => undefined,
+    };
+  }
+
+  let effectiveThrottleMs = typeof throttleMs === "number" && !Number.isNaN(throttleMs) ? throttleMs : 100;
+  if (effectiveThrottleMs < 0) {
+    effectiveThrottleMs = 0;
+  }
+
+  let lastEmissionAt = -Infinity;
+  let held: AgentToolResult<ProgressDetails> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const emit = () => {
+    if (held) {
+      onUpdate(held);
+      held = undefined;
+      lastEmissionAt = Date.now();
+    }
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+
+  const progress = (payload: AgentToolResult<ProgressDetails>) => {
+    held = payload;
+    const elapsed = Date.now() - lastEmissionAt;
+
+    if (elapsed >= effectiveThrottleMs) {
+      emit();
+      return;
+    }
+
+    if (!timer) {
+      timer = setTimeout(() => {
+        timer = undefined;
+        emit();
+      }, Math.max(0, effectiveThrottleMs - elapsed));
+    }
+  };
+
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (held) {
+      onUpdate(held);
+      held = undefined;
+      lastEmissionAt = Date.now();
+    }
+  };
+
+  return { progress, flush };
 }
 
 let cachedAstBroInfo: AstBroInfo | undefined;

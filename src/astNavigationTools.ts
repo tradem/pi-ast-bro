@@ -1,8 +1,16 @@
 import { Type, type Static } from "typebox";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { resolve } from "node:path";
 import type { SettingsManager } from "./config.js";
-import { isAstBroAvailable, isPathSafe, runAstBroSurface, runAstBroTrace } from "./utils.js";
+import {
+  createProgressThrottle,
+  isAstBroAvailable,
+  isPathSafe,
+  progressPayload,
+  runAstBroSurface,
+  runAstBroTrace,
+  type ProgressDetails,
+} from "./utils.js";
 
 /**
  * TypeBox schemas for the optional filtered navigation tools.
@@ -81,7 +89,7 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
       _toolCallId: string,
       params: AnalyzeAstTraceParams,
       signal: AbortSignal | undefined,
-      _onUpdate: unknown,
+      onUpdate: AgentToolUpdateCallback | undefined,
       ctx: ExtensionContext,
     ) {
       if (!isAstBroAvailable()) {
@@ -103,25 +111,34 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
         resolvedPath = resolve(ctx.cwd, params.path);
       }
 
-      const result = await runAstBroTrace(params.from, params.to, resolvedPath, { signal });
-      if (!result) {
-        return errorResult("Failed to run ast-bro trace.");
-      }
-
-      if (signal?.aborted) {
-        return errorResult("ast-bro trace aborted.");
-      }
-
       const config = await settings.load(ctx.cwd);
-      const output = trimToBudget(result.stdout || result.stderr, config.contextDefaultBudget);
+      const throttle = createProgressThrottle(config.progressUpdateThrottleMs, onUpdate);
 
-      return {
-        content: [{ type: "text", text: output }],
-        isError: result.status !== 0,
-        details: { exitCode: result.status },
-      };
+      try {
+        throttle.progress(progressPayload("starting", "starting ast-bro trace…"));
+        const result = await runAstBroTrace(params.from, params.to, resolvedPath, { signal });
+        throttle.progress(progressPayload("querying", "querying ast-bro trace…"));
+
+        if (!result) {
+          return errorResult("Failed to run ast-bro trace.");
+        }
+
+        if (signal?.aborted) {
+          return errorResult("ast-bro trace aborted.");
+        }
+
+        const output = trimToBudget(result.stdout || result.stderr, config.contextDefaultBudget);
+
+        return {
+          content: [{ type: "text", text: output }],
+          isError: result.status !== 0,
+          details: { exitCode: result.status },
+        };
+      } finally {
+        throttle.flush();
+      }
     },
-  });
+  } as ToolDefinition<any, any, any>);
 
   pi.registerTool({
     name: "analyze_ast_surface",
@@ -137,7 +154,7 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
       _toolCallId: string,
       params: AnalyzeAstSurfaceParams,
       signal: AbortSignal | undefined,
-      _onUpdate: unknown,
+      onUpdate: AgentToolUpdateCallback | undefined,
       ctx: ExtensionContext,
     ) {
       if (!isAstBroAvailable()) {
@@ -149,20 +166,30 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
       }
 
       const resolvedPath = resolve(ctx.cwd, params.path);
-      const result = await runAstBroSurface(resolvedPath, { signal });
-      if (!result) {
-        return errorResult("Failed to run ast-bro surface.");
-      }
+      const config = await settings.load(ctx.cwd);
+      const throttle = createProgressThrottle(config.progressUpdateThrottleMs, onUpdate);
 
-      if (signal?.aborted) {
-        return errorResult("ast-bro surface aborted.");
-      }
+      try {
+        throttle.progress(progressPayload("starting", "starting ast-bro surface…"));
+        const result = await runAstBroSurface(resolvedPath, { signal });
+        throttle.progress(progressPayload("querying", "querying ast-bro surface…"));
 
-      return {
-        content: [{ type: "text", text: result.stdout || result.stderr }],
-        isError: result.status !== 0,
-        details: { exitCode: result.status },
-      };
+        if (!result) {
+          return errorResult("Failed to run ast-bro surface.");
+        }
+
+        if (signal?.aborted) {
+          return errorResult("ast-bro surface aborted.");
+        }
+
+        return {
+          content: [{ type: "text", text: result.stdout || result.stderr }],
+          isError: result.status !== 0,
+          details: { exitCode: result.status },
+        };
+      } finally {
+        throttle.flush();
+      }
     },
-  });
+  } as ToolDefinition<any, any, any>);
 }

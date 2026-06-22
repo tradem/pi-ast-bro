@@ -1,8 +1,17 @@
 import { Type, type Static } from "typebox";
 import { readFile } from "node:fs/promises";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { SettingsManager } from "./config.js";
 import { formatBytesHuman, type StatsManager } from "./statsManager.js";
-import { isAstBroAvailable, isPathSafe, resolveExistingFilePath, runAstBroAsync } from "./utils.js";
+import {
+  createProgressThrottle,
+  isAstBroAvailable,
+  isPathSafe,
+  progressPayload,
+  resolveExistingFilePath,
+  runAstBroAsync,
+  type ProgressDetails,
+} from "./utils.js";
 
 /**
  * TypeBox schemas for the two AST refactoring tools.
@@ -121,15 +130,20 @@ interface AugmentResult {
   hadTruncation: boolean;
 }
 
-async function augmentArray(items: unknown[], cwd: string): Promise<AugmentArrayResult> {
+async function augmentArray(
+  items: unknown[],
+  cwd: string,
+  onProgress?: (current: number, total: number) => void,
+): Promise<AugmentArrayResult> {
   const seenFiles = new Set<string>();
   const fileCache = new Map<string, string>();
   let originalBytes = 0;
   let filesRead = 0;
   let hadTruncation = false;
   const augmented: unknown[] = [];
+  const total = Math.min(items.length, MAX_RESULTS);
 
-  for (let i = 0; i < Math.min(items.length, MAX_RESULTS); i++) {
+  for (let i = 0; i < total; i++) {
     const item = items[i];
 
     if (isValidMatch(item)) {
@@ -137,6 +151,7 @@ async function augmentArray(items: unknown[], cwd: string): Promise<AugmentArray
       originalBytes += metrics.originalBytes;
       filesRead += metrics.filesRead;
       augmented.push(item as Record<string, unknown>);
+      onProgress?.(i + 1, total);
       continue;
     }
 
@@ -184,9 +199,13 @@ async function augmentArray(items: unknown[], cwd: string): Promise<AugmentArray
  * Arrays are hard-limited to {@link MAX_RESULTS} entries. When an array is
  * truncated a sibling `*_attention_required` key is added.
  */
-async function augmentResult(parsed: unknown, cwd: string): Promise<AugmentResult> {
+async function augmentResult(
+  parsed: unknown,
+  cwd: string,
+  onProgress?: (current: number, total: number) => void,
+): Promise<AugmentResult> {
   if (Array.isArray(parsed)) {
-    const aug = await augmentArray(parsed, cwd);
+    const aug = await augmentArray(parsed, cwd, onProgress);
     const payload: Record<string, unknown> = { results: aug.results };
     if (aug.attention_required) payload.attention_required = aug.attention_required;
     return {
@@ -208,7 +227,7 @@ async function augmentResult(parsed: unknown, cwd: string): Promise<AugmentResul
 
   for (const [key, value] of Object.entries(parsed)) {
     if (Array.isArray(value)) {
-      const aug = await augmentArray(value, cwd);
+      const aug = await augmentArray(value, cwd, onProgress);
       result[key] = aug.results;
       originalBytes += aug.originalBytes;
       filesRead += aug.filesRead;
@@ -278,6 +297,8 @@ export async function executeAstBroRefactorTool(
   ctx: ExtensionContext,
   stats?: StatsManager,
   signal?: AbortSignal,
+  onUpdate?: AgentToolUpdateCallback | undefined,
+  settings?: SettingsManager,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean; details: { exitCode: number | null } }> {
   if (!isAstBroAvailable()) {
     return {
@@ -312,72 +333,90 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  const result = await runAstBroRefactor(subcommand, target, subcommand === "implements" ? file : undefined, signal);
-  if (!result) {
-    return {
-      content: [{ type: "text", text: `Failed to run ast-bro ${subcommand}.` }],
-      isError: true,
-      details: { exitCode: null },
-    };
-  }
+  const throttleMs = settings ? (await settings.load(ctx.cwd)).progressUpdateThrottleMs : 100;
+  const throttle = createProgressThrottle(throttleMs, onUpdate);
 
-  if (signal?.aborted) {
-    return {
-      content: [{ type: "text", text: `ast-bro ${subcommand} aborted.` }],
-      isError: true,
-      details: { exitCode: null },
-    };
-  }
+  try {
+    throttle.progress(progressPayload("starting", `starting ast-bro ${subcommand}…`));
+    const result = await runAstBroRefactor(subcommand, target, subcommand === "implements" ? file : undefined, signal);
+    throttle.progress(progressPayload("querying", `querying ast-bro ${subcommand}…`));
 
-  if (result.status !== 0) {
-    const output = result.stdout || result.stderr || `ast-bro ${subcommand} failed.`;
-    const hint = output.includes("no symbol matches")
-      ? "\n\nHint: ambiguous symbols that live in the language standard library or built-in types (e.g. to_string, clone, str.upper) cannot always be resolved by ast-bro. Try analyze_ast_search with the method name instead."
-      : "";
-    return {
-      content: [{ type: "text", text: output + hint }],
-      isError: true,
-      details: { exitCode: result.status },
-    };
-  }
+    if (!result) {
+      return {
+        content: [{ type: "text", text: `Failed to run ast-bro ${subcommand}.` }],
+        isError: true,
+        details: { exitCode: null },
+      };
+    }
 
-  const stdout = result.stdout ?? "";
-  const parsed = parseJsonOutput(stdout);
+    if (signal?.aborted) {
+      return {
+        content: [{ type: "text", text: `ast-bro ${subcommand} aborted.` }],
+        isError: true,
+        details: { exitCode: null },
+      };
+    }
 
-  // If the CLI did not emit JSON, fall back to the raw text output so existing
-  // behaviour and non-JSON CLI versions keep working.
-  if (parsed === null) {
+    if (result.status !== 0) {
+      const output = result.stdout || result.stderr || `ast-bro ${subcommand} failed.`;
+      const hint = output.includes("no symbol matches")
+        ? "\n\nHint: ambiguous symbols that live in the language standard library or built-in types (e.g. to_string, clone, str.upper) cannot always be resolved by ast-bro. Try analyze_ast_search with the method name instead."
+        : "";
+      return {
+        content: [{ type: "text", text: output + hint }],
+        isError: true,
+        details: { exitCode: result.status },
+      };
+    }
+
+    const stdout = result.stdout ?? "";
+    const parsed = parseJsonOutput(stdout);
+
+    // If the CLI did not emit JSON, fall back to the raw text output so existing
+    // behaviour and non-JSON CLI versions keep working.
+    if (parsed === null) {
+      return {
+        content: [{ type: "text", text: stdout || result.stderr }],
+        isError: false,
+        details: { exitCode: result.status },
+      };
+    }
+
+    const augmented = await augmentResult(parsed, ctx.cwd, (current, total) => {
+      throttle.progress(
+        progressPayload("augmenting", `augmenting snippet ${current}/${total}…`, current, total),
+      );
+    });
+    const outputText = JSON.stringify(augmented.payload, null, 2);
+    const outputBytes = Buffer.byteLength(outputText, "utf-8");
+    const savedBytes = Math.max(0, augmented.originalBytes - outputBytes);
+
+    if (savedBytes > 0 && augmented.filesRead > 0) {
+      stats?.addReadSavings(target, augmented.originalBytes, outputBytes);
+      ctx.ui.notify(
+        `ast-bro ${subcommand}: saved ~${formatBytesHuman(savedBytes)} of context using exact snippets`,
+        "info",
+      );
+    }
+
     return {
-      content: [{ type: "text", text: stdout || result.stderr }],
+      content: [{ type: "text", text: outputText }],
       isError: false,
       details: { exitCode: result.status },
     };
+  } finally {
+    throttle.flush();
   }
-
-  const augmented = await augmentResult(parsed, ctx.cwd);
-  const outputText = JSON.stringify(augmented.payload, null, 2);
-  const outputBytes = Buffer.byteLength(outputText, "utf-8");
-  const savedBytes = Math.max(0, augmented.originalBytes - outputBytes);
-
-  if (savedBytes > 0 && augmented.filesRead > 0) {
-    stats?.addReadSavings(target, augmented.originalBytes, outputBytes);
-    ctx.ui.notify(
-      `ast-bro ${subcommand}: saved ~${formatBytesHuman(savedBytes)} of context using exact snippets`,
-      "info",
-    );
-  }
-
-  return {
-    content: [{ type: "text", text: outputText }],
-    isError: false,
-    details: { exitCode: result.status },
-  };
 }
 
 /**
  * Register the AST refactoring tools used for safe, snippet-backed edits.
  */
-export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager): void {
+export function registerRefactoringTools(
+  pi: ExtensionAPI,
+  stats: StatsManager,
+  settings: SettingsManager,
+): void {
   pi.registerTool({
     name: "analyze_ast_impact",
     label: "AST Impact",
@@ -391,10 +430,19 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
       "Do not use this tool for ambiguous symbols defined in the language standard library or built-in types (e.g. to_string/clone, ToString, str.upper); ast-bro may fail to resolve them. Use analyze_ast_search instead.",
     ],
     parameters: AnalyzeAstImpactSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      return executeAstBroRefactorTool("impact", params.symbol, params.file, ctx, stats, signal);
+    async execute(_toolCallId, params: AnalyzeAstImpactParams, signal, onUpdate, ctx) {
+      return executeAstBroRefactorTool(
+        "impact",
+        params.symbol,
+        params.file,
+        ctx,
+        stats,
+        signal,
+        onUpdate,
+        settings,
+      );
     },
-  });
+  } as ToolDefinition<any, any, any>);
 
   pi.registerTool({
     name: "find_implementations",
@@ -407,8 +455,17 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
       "Prefer it over bash/rg/grep for AST-accurate implementation discovery.",
     ],
     parameters: FindImplementationsSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      return executeAstBroRefactorTool("implements", params.symbol, params.file, ctx, stats, signal);
+    async execute(_toolCallId, params: FindImplementationsParams, signal, onUpdate, ctx) {
+      return executeAstBroRefactorTool(
+        "implements",
+        params.symbol,
+        params.file,
+        ctx,
+        stats,
+        signal,
+        onUpdate,
+        settings,
+      );
     },
-  });
+  } as ToolDefinition<any, any, any>);
 }
