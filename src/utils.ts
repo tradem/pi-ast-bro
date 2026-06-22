@@ -484,7 +484,8 @@ function isSymbolSafe(symbol: string): boolean {
 /**
  * Run `ast-bro cycles --json [PATH]`.
  *
- * Kept synchronous for the edit-interceptor cycle check.
+ * Kept synchronous for backwards compatibility; prefer
+ * {@link runAstBroCyclesAsync} in async contexts.
  */
 export function runAstBroCycles(
   repoPath: string,
@@ -501,6 +502,26 @@ export function runAstBroCycles(
       stdout: result.stdout ?? "",
       stderr: result.stderr ?? "",
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run `ast-bro cycles --json [PATH]` asynchronously.
+ *
+ * Returns `null` on error or exception so callers can fall back gracefully.
+ */
+export async function runAstBroCyclesAsync(
+  repoPath: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<{ status: number | null; stdout: string; stderr: string } | null> {
+  if (!isPathSafe(repoPath)) return null;
+  try {
+    return await runAstBroAsync(["cycles", "--json", repoPath], {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs ?? 60_000,
+    });
   } catch {
     return null;
   }
@@ -552,7 +573,8 @@ export async function runAstBroSurface(
 /**
  * Run `ast-bro digest [PATHS]...` with an optional repo path.
  *
- * Kept synchronous for the session-seed path.
+ * Kept synchronous for backwards compatibility; prefer
+ * {@link runAstBroDigestAsync} in async contexts.
  */
 export function runAstBroDigest(
   paths: string[],
@@ -571,6 +593,28 @@ export function runAstBroDigest(
       stdout: result.stdout ?? "",
       stderr: result.stderr ?? "",
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run `ast-bro digest [PATHS]...` asynchronously.
+ *
+ * Returns `null` on error or exception so callers can fall back gracefully.
+ */
+export async function runAstBroDigestAsync(
+  paths: string[],
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<{ status: number | null; stdout: string; stderr: string } | null> {
+  if (!Array.isArray(paths) || paths.length === 0) return null;
+  if (paths.some((p) => !isPathSafe(p))) return null;
+
+  try {
+    return await runAstBroAsync(["digest", ...paths], {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs ?? 60_000,
+    });
   } catch {
     return null;
   }

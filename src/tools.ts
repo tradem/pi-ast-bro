@@ -118,6 +118,14 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
           isError: result.status !== 0,
           details: { exitCode: result.status },
         };
+      } catch (err) {
+        throttle.flush();
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Internal error: ${message}` }],
+          isError: true,
+          details: { exitCode: null },
+        };
       } finally {
         throttle.flush();
       }
@@ -229,6 +237,14 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
           content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
           isError: false,
           details: { exitCode: result.status },
+        };
+      } catch (err) {
+        throttle.flush();
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Internal error: ${message}` }],
+          isError: true,
+          details: { exitCode: null },
         };
       } finally {
         throttle.flush();

@@ -18,7 +18,7 @@ import { clearSessionSeed, getSessionSeed, isSessionSeedActive, setSessionSeed }
 import { registerAstCommand, registerAstGainCommand } from "./tui.js";
 import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
-import { clearAstBroInfoCache, getAstBroInfo, isAstBroAvailable, resolveRepoRoot, runAstBroDigest, satisfiesSemver } from "./utils.js";
+import { clearAstBroInfoCache, getAstBroInfo, isAstBroAvailable, resolveRepoRoot, runAstBroDigestAsync, satisfiesSemver } from "./utils.js";
 import { SUPPORTED_AST_BRO_RANGE, SUPPORTED_PI_RANGE } from "./constants.js";
 
 const SESSION_SEED_CUSTOM_TYPE = "ast-bro-session-seed";
@@ -45,7 +45,7 @@ async function generateSessionSeed(
   if (!isAstBroAvailable()) return null;
 
   const seedRoot = config.sessionSeedScope === "cwd" ? ctx.cwd : resolveRepoRoot(ctx.cwd);
-  const result = runAstBroDigest([seedRoot]);
+  const result = await runAstBroDigestAsync([seedRoot], { signal: ctx.signal, timeoutMs: 60_000 });
   if (!result || result.status !== 0 || result.stdout.length === 0) return null;
 
   const output = trimToBudget(result.stdout, config.sessionSeedBudget);

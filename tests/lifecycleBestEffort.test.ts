@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extensionFactory from "../src/index.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
@@ -162,17 +163,20 @@ describe("lifecycle best-effort hooks", () => {
   it("does not throw or mutate result when cycle check fails", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
+    const { spawnSync, spawn } = await import("node:child_process");
 
     await configureSettings({ enableCyclePreflight: true });
     vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
       if (command === "ast-bro" && args[0] === "--version") {
         return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
       }
-      if (command === "ast-bro" && args[0] === "cycles") {
-        return { status: 1, stdout: "", stderr: "cycles failed" } as ReturnType<typeof spawnSync>;
-      }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
+    vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+      if (command === "ast-bro" && args[0] === "cycles") {
+        return emitSpawnResponse(1, "", "cycles failed");
+      }
+      return emitSpawnResponse(0, "", "");
     });
 
     const ctx = createMockContext();
@@ -185,7 +189,7 @@ describe("lifecycle best-effort hooks", () => {
   it("flags newly detected cycles involving the edited file", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
+    const { spawnSync, spawn } = await import("node:child_process");
 
     await configureSettings({ enableCyclePreflight: true });
     let cycleOutput = JSON.stringify([]);
@@ -193,10 +197,13 @@ describe("lifecycle best-effort hooks", () => {
       if (command === "ast-bro" && args[0] === "--version") {
         return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
       }
-      if (command === "ast-bro" && args[0] === "cycles") {
-        return { status: 0, stdout: cycleOutput, stderr: "" } as ReturnType<typeof spawnSync>;
-      }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
+    vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+      if (command === "ast-bro" && args[0] === "cycles") {
+        return emitSpawnResponse(0, cycleOutput, "");
+      }
+      return emitSpawnResponse(0, "", "");
     });
 
     const ctx = createMockContext();

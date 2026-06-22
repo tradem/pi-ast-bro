@@ -199,21 +199,21 @@ describe("pi-ast-bro extension", () => {
     it("uses ctx.overrideResult when the runtime supports it", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
-      const { spawnSync } = await import("node:child_process");
+      const { spawn } = await import("node:child_process");
 
       await mockFileContent("/project/src/large.rs", "line\n".repeat(501));
-      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
         if (command === "ast-bro" && args?.[0] === "map") {
-          return { status: 0, stdout: "AST context summary", stderr: "" } as ReturnType<typeof spawnSync>;
+          return emitSpawnResponse(0, "AST context summary", "");
         }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
       const event = { toolName: "read", input: { path: "src/large.rs" }, toolCallId: "tc1" };
       await invokeHandlers(pi, "tool_call", event, ctx);
 
-      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["map", "/project/src/large.rs"], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith("ast-bro", ["map", "/project/src/large.rs"], expect.any(Object));
       expect(ctx.overrideResult).toHaveBeenCalledTimes(1);
       expect(ctx.overrideResult).toHaveBeenCalledWith({
         content: [{ type: "text", text: expect.stringContaining("AST context summary") }],
@@ -223,14 +223,14 @@ describe("pi-ast-bro extension", () => {
     it("rewrites the tool_result when overrideResult is unavailable (e.g. pi 0.79.8)", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
-      const { spawnSync } = await import("node:child_process");
+      const { spawn } = await import("node:child_process");
 
       await mockFileContent("/project/src/large.rs", "line\n".repeat(501));
-      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
         if (command === "ast-bro" && args?.[0] === "map") {
-          return { status: 0, stdout: "AST context summary", stderr: "" } as ReturnType<typeof spawnSync>;
+          return emitSpawnResponse(0, "AST context summary", "");
         }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       // Simulate pi versions that do not expose ctx.overrideResult.
@@ -241,7 +241,7 @@ describe("pi-ast-bro extension", () => {
 
       // tool_call does not call overrideResult, so it should have registered a pending rewrite.
       if (ctx.overrideResult) expect(ctx.overrideResult).not.toHaveBeenCalled();
-      expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", ["context", "/project/src/large.rs"], expect.any(Object));
+      expect(spawn).not.toHaveBeenCalledWith("ast-bro", ["context", "/project/src/large.rs"], expect.any(Object));
 
       const toolResultEvent = {
         toolName: "read",
@@ -252,7 +252,7 @@ describe("pi-ast-bro extension", () => {
       };
       const results = await invokeHandlers(pi, "tool_result", toolResultEvent, ctx);
 
-      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["map", "/project/src/large.rs"], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith("ast-bro", ["map", "/project/src/large.rs"], expect.any(Object));
       const patch = results.find((r) => r && typeof r === "object" && "content" in r);
       expect(patch).toEqual(
         expect.objectContaining({
@@ -380,7 +380,7 @@ describe("pi-ast-bro extension", () => {
     it("mutates edit result to isError: true when ast-bro map reports a syntax fault", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
-      const { spawnSync } = await import("node:child_process");
+      const { spawnSync, spawn } = await import("node:child_process");
       const { existsSync, readFileSync } = await import("node:fs");
 
       vi.mocked(existsSync).mockReturnValue(true);
@@ -389,10 +389,13 @@ describe("pi-ast-bro extension", () => {
         if (command === "ast-bro" && args?.[0] === "--version") {
           return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
         }
-        if (command === "ast-bro" && args?.[0] === "map") {
-          return { status: 1, stdout: "", stderr: "unexpected token at line 10" } as ReturnType<typeof spawnSync>;
-        }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "map") {
+          return emitSpawnResponse(1, "", "unexpected token at line 10");
+        }
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
@@ -405,7 +408,7 @@ describe("pi-ast-bro extension", () => {
       };
       const results = await invokeHandlers(pi, "tool_result", event, ctx);
 
-      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["map", "/project/src/broken.rs"], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith("ast-bro", ["map", "/project/src/broken.rs"], expect.any(Object));
       const patch = results.find((r) => r && typeof r === "object" && "isError" in r);
       expect(patch).toEqual(
         expect.objectContaining({
@@ -418,7 +421,7 @@ describe("pi-ast-bro extension", () => {
     it("does not mutate result when ast-bro map succeeds", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
-      const { spawnSync } = await import("node:child_process");
+      const { spawnSync, spawn } = await import("node:child_process");
       const { existsSync } = await import("node:fs");
 
       vi.mocked(existsSync).mockReturnValue(true);
@@ -426,10 +429,13 @@ describe("pi-ast-bro extension", () => {
         if (command === "ast-bro" && args?.[0] === "--version") {
           return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
         }
-        if (command === "ast-bro" && args?.[0] === "map") {
-          return { status: 0, stdout: "OK", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "map") {
+          return emitSpawnResponse(0, "OK", "");
+        }
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();

@@ -169,6 +169,10 @@ export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager
           isError: false,
           details: { exitCode: 0 },
         };
+      } catch (err) {
+        throttle.flush();
+        const message = err instanceof Error ? err.message : String(err);
+        return errorResult(`Internal error: ${message}`);
       } finally {
         throttle.flush();
       }

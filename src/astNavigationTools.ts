@@ -134,6 +134,10 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
           isError: result.status !== 0,
           details: { exitCode: result.status },
         };
+      } catch (err) {
+        throttle.flush();
+        const message = err instanceof Error ? err.message : String(err);
+        return errorResult(`Internal error: ${message}`);
       } finally {
         throttle.flush();
       }
@@ -187,6 +191,10 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
           isError: result.status !== 0,
           details: { exitCode: result.status },
         };
+      } catch (err) {
+        throttle.flush();
+        const message = err instanceof Error ? err.message : String(err);
+        return errorResult(`Internal error: ${message}`);
       } finally {
         throttle.flush();
       }

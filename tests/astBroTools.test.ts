@@ -245,10 +245,10 @@ describe("astBroTools", () => {
     it("returns an error when aborted", async () => {
       mockAstBroAvailable();
       const controller = new AbortController();
+      controller.abort();
 
       vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
         if (command === "ast-bro" && args?.[0] === "impact") {
-          controller.abort();
           return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
         }
         return emitSpawnResponse(0, "", "");
@@ -259,6 +259,36 @@ describe("astBroTools", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain("aborted");
+    });
+
+    it("returns raw JSON with augmentation_error when snippet injection fails", async () => {
+      mockAstBroAvailable();
+      await mockFileSystem({
+        path: "/project/src/lib.rs",
+        content: "fn main() {}",
+      });
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+      vi.mocked(readFile as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("read failed"));
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("impact", "make_ctx", undefined, ctx);
+
+      expect(result.isError).toBe(false);
+      const augmentationPayload = JSON.parse(result.content[0].text) as {
+        results: Array<{ file: string; line: number; exact_snippet?: string }>;
+        augmentation_error?: string;
+        attention_required?: string;
+      };
+      expect(augmentationPayload.results).toHaveLength(1);
+      expect(augmentationPayload.results[0].exact_snippet).toBeUndefined();
+      expect(augmentationPayload.augmentation_error).toContain("read failed");
+      expect(augmentationPayload.attention_required).toContain("Snippet augmentation failed");
     });
   });
 

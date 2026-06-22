@@ -125,15 +125,15 @@ function mockAstBro(version: string, digestStdout = ""): void {
     if (command === "ast-bro" && args?.[0] === "--version") {
       return emitSpawnResponse(0, version, "");
     }
+    if (command === "ast-bro" && args?.[0] === "digest") {
+      return emitSpawnResponse(0, digestStdout, "");
+    }
     return emitSpawnResponse(0, "", "");
   });
 
   vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
     if (command === "which" && args?.[0] === "ast-bro") {
       return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-    }
-    if (command === "ast-bro" && args?.[0] === "digest") {
-      return { status: 0, stdout: digestStdout, stderr: "" } as ReturnType<typeof spawnSync>;
     }
     return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
   });
@@ -163,12 +163,13 @@ describe("session seed", () => {
       }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
     });
+    vi.mocked(spawn).mockImplementation(() => emitSpawnResponse(0, "", ""));
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
     const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start" }, ctx);
 
-    expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", ["digest", expect.any(String)], expect.any(Object));
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", ["digest", expect.any(String)], expect.any(Object));
     const messageResult = results.find(
       (r) => r && typeof r === "object" && "message" in r,
     );
@@ -187,7 +188,7 @@ describe("session seed", () => {
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
     const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start" }, ctx);
 
-    expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["digest", "/project"], expect.any(Object));
+    expect(spawn).toHaveBeenCalledWith("ast-bro", ["digest", "/project"], expect.any(Object));
     const messageResult = results.find(
       (r) => r && typeof r === "object" && "message" in r,
     ) as { message: { customType: string; content: string; display: boolean } } | undefined;
@@ -227,14 +228,14 @@ describe("session seed", () => {
       if (command === "ast-bro" && args?.[0] === "--version") {
         return emitSpawnResponse(0, "ast-bro 3.0.0", "");
       }
+      if (command === "ast-bro" && args?.[0] === "digest") {
+        return emitSpawnResponse(1, "", "digest error");
+      }
       return emitSpawnResponse(0, "", "");
     });
     vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "which" && args?.[0] === "ast-bro") {
         return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "ast-bro" && args?.[0] === "digest") {
-        return { status: 1, stdout: "", stderr: "digest error" } as ReturnType<typeof spawnSync>;
       }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
     });

@@ -11,6 +11,7 @@ import { registerAstTools } from "../src/tools.js";
 import { SettingsManager, type Settings } from "../src/config.js";
 import { StatsManager } from "../src/statsManager.js";
 import { clearAstBroInfoCache } from "../src/utils.js";
+import * as utils from "../src/utils.js";
 import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
@@ -417,6 +418,24 @@ describe("tool progress phases", () => {
     const text = result.content.map((c) => c.text).join("");
     expect(text).not.toContain("starting ast-bro");
     expect(text).not.toContain("augmenting snippet");
+  });
+
+  it("analyze_ast_map catch block returns isError: true on unexpected exception", async () => {
+    mockAstBroAvailable();
+    const spy = vi.spyOn(utils, "runAstBroAsync").mockRejectedValueOnce(new Error("spawn explosion"));
+
+    const pi = createMockPi();
+    const stats = new StatsManager("");
+    const settings = createMockSettings();
+    registerAstTools(pi, stats, settings);
+    const tool = getTool(pi, "analyze_ast_map");
+
+    const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Internal error");
+    expect(result.content[0].text).toContain("spawn explosion");
+    spy.mockRestore();
   });
 });
 

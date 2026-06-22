@@ -19,10 +19,9 @@ import {
   isSupportedExtension,
   resolveExistingFilePath,
   resolveRepoRoot,
-  runAstBro,
-  runAstBroCycles,
+  runAstBroAsync,
+  runAstBroCyclesAsync,
   runAstBroIndexRefresh,
-  runAstBroSqueeze,
 } from "./utils.js";
 
 interface ViewFileInput {
@@ -144,30 +143,34 @@ export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsMana
     // Fast path: if the runtime supports overriding the result before the tool
     // runs, use it. This avoids reading the full file into memory at all.
     if (typeof overrideCtx.overrideResult === "function") {
-      const astResult =
-        decision.mode === "squeeze"
-          ? runAstBroSqueeze(decision.resolved)
-          : runAstBro("map", decision.resolved);
-      if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
-
       try {
-        const original = readFileSync(decision.resolved, "utf-8");
-        const output = astOutputWithReminder(astResult, decision.mode);
-        recordInterceptionSavings(
-          stats,
-          decision.mode,
-          decision.resolved,
-          Buffer.byteLength(original, "utf-8"),
-          Buffer.byteLength(output, "utf-8"),
-          ctx.cwd,
-        );
-      } catch {
-        // Best-effort telemetry: if the original cannot be measured, still serve AST output.
-      }
+        const astResult =
+          decision.mode === "squeeze"
+            ? await runAstBroAsync(["squeeze", decision.resolved], { signal: ctx.signal, timeoutMs: 30_000 })
+            : await runAstBroAsync(["map", decision.resolved], { signal: ctx.signal, timeoutMs: 30_000 });
+        if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
 
-      overrideCtx.overrideResult({
-        content: [{ type: "text", text: astOutputWithReminder(astResult, decision.mode) }],
-      });
+        try {
+          const original = readFileSync(decision.resolved, "utf-8");
+          const output = astOutputWithReminder(astResult, decision.mode);
+          recordInterceptionSavings(
+            stats,
+            decision.mode,
+            decision.resolved,
+            Buffer.byteLength(original, "utf-8"),
+            Buffer.byteLength(output, "utf-8"),
+            ctx.cwd,
+          );
+        } catch {
+          // Best-effort telemetry: if the original cannot be measured, still serve AST output.
+        }
+
+        overrideCtx.overrideResult({
+          content: [{ type: "text", text: astOutputWithReminder(astResult, decision.mode) }],
+        });
+      } catch {
+        // Best-effort: if ast-bro fails, let the original read proceed unchanged.
+      }
       return;
     }
 
@@ -181,24 +184,31 @@ export function registerReadInterceptor(pi: ExtensionAPI, settings: SettingsMana
     if (!pending) return;
     pendingReads.delete(event.toolCallId);
 
-    const astResult =
-      pending.mode === "squeeze" ? runAstBroSqueeze(pending.resolved) : runAstBro("map", pending.resolved);
-    if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
+    try {
+      const astResult =
+        pending.mode === "squeeze"
+          ? await runAstBroAsync(["squeeze", pending.resolved], { signal: ctx.signal, timeoutMs: 30_000 })
+          : await runAstBroAsync(["map", pending.resolved], { signal: ctx.signal, timeoutMs: 30_000 });
+      if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
 
-    const output = astOutputWithReminder(astResult, pending.mode);
-    const original = collectTextContent(event.content);
-    recordInterceptionSavings(
-      stats,
-      pending.mode,
-      pending.resolved,
-      Buffer.byteLength(original, "utf-8"),
-      Buffer.byteLength(output, "utf-8"),
-      ctx.cwd,
-    );
+      const output = astOutputWithReminder(astResult, pending.mode);
+      const original = collectTextContent(event.content);
+      recordInterceptionSavings(
+        stats,
+        pending.mode,
+        pending.resolved,
+        Buffer.byteLength(original, "utf-8"),
+        Buffer.byteLength(output, "utf-8"),
+        ctx.cwd,
+      );
 
-    return {
-      content: [{ type: "text", text: output }],
-    };
+      return {
+        content: [{ type: "text", text: output }],
+      };
+    } catch {
+      // Best-effort: if ast-bro fails, return the original tool result unchanged.
+      return;
+    }
   });
 }
 
@@ -219,30 +229,34 @@ export function registerViewFileInterceptor(pi: ExtensionAPI, settings: Settings
     const overrideCtx = ctx as OverrideContext;
 
     if (typeof overrideCtx.overrideResult === "function") {
-      const astResult =
-        decision.mode === "squeeze"
-          ? runAstBroSqueeze(decision.resolved)
-          : runAstBro("map", decision.resolved);
-      if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
-
       try {
-        const original = readFileSync(decision.resolved, "utf-8");
-        const output = astOutputWithReminder(astResult, decision.mode);
-        recordInterceptionSavings(
-          stats,
-          decision.mode,
-          decision.resolved,
-          Buffer.byteLength(original, "utf-8"),
-          Buffer.byteLength(output, "utf-8"),
-          ctx.cwd,
-        );
-      } catch {
-        // Best-effort telemetry.
-      }
+        const astResult =
+          decision.mode === "squeeze"
+            ? await runAstBroAsync(["squeeze", decision.resolved], { signal: ctx.signal, timeoutMs: 30_000 })
+            : await runAstBroAsync(["map", decision.resolved], { signal: ctx.signal, timeoutMs: 30_000 });
+        if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
 
-      overrideCtx.overrideResult({
-        content: [{ type: "text", text: astOutputWithReminder(astResult, decision.mode) }],
-      });
+        try {
+          const original = readFileSync(decision.resolved, "utf-8");
+          const output = astOutputWithReminder(astResult, decision.mode);
+          recordInterceptionSavings(
+            stats,
+            decision.mode,
+            decision.resolved,
+            Buffer.byteLength(original, "utf-8"),
+            Buffer.byteLength(output, "utf-8"),
+            ctx.cwd,
+          );
+        } catch {
+          // Best-effort telemetry.
+        }
+
+        overrideCtx.overrideResult({
+          content: [{ type: "text", text: astOutputWithReminder(astResult, decision.mode) }],
+        });
+      } catch {
+        // Best-effort: if ast-bro fails, let the original view_file proceed unchanged.
+      }
       return;
     }
 
@@ -258,24 +272,31 @@ export function registerViewFileInterceptor(pi: ExtensionAPI, settings: Settings
     if (!pending) return;
     pendingReads.delete(event.toolCallId);
 
-    const astResult =
-      pending.mode === "squeeze" ? runAstBroSqueeze(pending.resolved) : runAstBro("map", pending.resolved);
-    if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
+    try {
+      const astResult =
+        pending.mode === "squeeze"
+          ? await runAstBroAsync(["squeeze", pending.resolved], { signal: ctx.signal, timeoutMs: 30_000 })
+          : await runAstBroAsync(["map", pending.resolved], { signal: ctx.signal, timeoutMs: 30_000 });
+      if (!astResult || astResult.status !== 0 || astResult.stdout.length === 0) return;
 
-    const output = astOutputWithReminder(astResult, pending.mode);
-    const original = collectTextContent(event.content);
-    recordInterceptionSavings(
-      stats,
-      pending.mode,
-      pending.resolved,
-      Buffer.byteLength(original, "utf-8"),
-      Buffer.byteLength(output, "utf-8"),
-      ctx.cwd,
-    );
+      const output = astOutputWithReminder(astResult, pending.mode);
+      const original = collectTextContent(event.content);
+      recordInterceptionSavings(
+        stats,
+        pending.mode,
+        pending.resolved,
+        Buffer.byteLength(original, "utf-8"),
+        Buffer.byteLength(output, "utf-8"),
+        ctx.cwd,
+      );
 
-    return {
-      content: [{ type: "text", text: output }],
-    };
+      return {
+        content: [{ type: "text", text: output }],
+      };
+    } catch {
+      // Best-effort: if ast-bro fails, return the original tool result unchanged.
+      return;
+    }
   });
 }
 
@@ -336,7 +357,7 @@ export function registerEditInterceptor(pi: ExtensionAPI, settings: SettingsMana
 
     // Pre-flight syntax check.
     if (config.enablePreFlightSyntaxChecks && isSupported && isAstBroAvailable()) {
-      const astResult = runAstBro("map", resolved);
+      const astResult = await runAstBroAsync(["map", resolved], { signal: ctx.signal, timeoutMs: 30_000 });
       if (astResult && astResult.status !== 0) {
         const diagnostic = astResult.stderr || astResult.stdout || "ast-bro reported a syntax error.";
         stats.recordPreFlightError(resolved, diagnostic);
@@ -363,7 +384,7 @@ export function registerEditInterceptor(pi: ExtensionAPI, settings: SettingsMana
     // Optional import-cycle pre-flight check (best-effort, never blocks result).
     let cycleAnnotation: string | undefined;
     if (config.enableCyclePreflight && !eventError && isSupported) {
-      const cyclesResult = runAstBroCycles(repoPath);
+      const cyclesResult = await runAstBroCyclesAsync(repoPath, { signal: ctx.signal, timeoutMs: 60_000 });
       if (cyclesResult && cyclesResult.status === 0) {
         const currentCycles = parseCycles(cyclesResult.stdout);
         const fingerprints = currentCycles.map(fingerprintCycle);

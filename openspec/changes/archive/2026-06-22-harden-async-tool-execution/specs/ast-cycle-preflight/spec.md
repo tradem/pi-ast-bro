@@ -1,8 +1,5 @@
-# ast-cycle-preflight Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD
-## Requirements
 ### Requirement: Optional import-cycle pre-flight after edits
 The extension SHALL optionally run `ast-bro cycles` as part of the post-edit pre-flight, governed by an `enableCyclePreflight` setting (default off), surfacing newly detected import cycles similar to the syntax pre-flight gate.
 
@@ -29,4 +26,3 @@ The cycle check SHALL be best-effort and MUST NOT crash the agent or block the e
 #### Scenario: Cycle check fails
 - **WHEN** `ast-bro cycles` errors or is missing
 - **THEN** the edit result is returned unchanged and the failure is logged, not raised
-

@@ -119,6 +119,8 @@ async function configureSettings(opts: { enableLogSqueeze: boolean }): Promise<v
   });
 }
 
+import { emitSpawnResponse } from "./spawnMocks.js";
+
 describe("squeeze interception", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -132,17 +134,20 @@ describe("squeeze interception", () => {
   it("replaces a large .log read with ast-bro squeeze when enabled", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
+    const { spawnSync, spawn } = await import("node:child_process");
 
     await configureSettings({ enableLogSqueeze: true });
     vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
       if (command === "ast-bro" && args[0] === "--version") {
         return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
       }
-      if (command === "ast-bro" && args[0] === "squeeze") {
-        return { status: 0, stdout: "compressed log", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
+    vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+      if (command === "ast-bro" && args[0] === "squeeze") {
+        return emitSpawnResponse(0, "compressed log", "");
+      }
+      return emitSpawnResponse(0, "", "");
     });
 
     const ctx = createMockContext({ overrideResult: undefined });
@@ -157,7 +162,7 @@ describe("squeeze interception", () => {
     };
     const results = await invokeHandlers(pi, "tool_result", resultEvent, ctx);
 
-    expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["squeeze", "/project/app.log"], expect.any(Object));
+    expect(spawn).toHaveBeenCalledWith("ast-bro", ["squeeze", "/project/app.log"], expect.any(Object));
     const patch = results.find((r) => r && typeof r === "object" && "content" in r);
     expect(patch).toEqual(
       expect.objectContaining({
@@ -169,15 +174,10 @@ describe("squeeze interception", () => {
   it("does not squeeze when enableLogSqueeze is off", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
+    const { spawn } = await import("node:child_process");
 
     await configureSettings({ enableLogSqueeze: false });
-    vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
-      if (command === "ast-bro" && args[0] === "--version") {
-        return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    vi.mocked(spawn).mockImplementation(() => emitSpawnResponse(0, "", ""));
 
     const ctx = createMockContext({ overrideResult: undefined });
     await invokeHandlers(pi, "tool_call", { toolName: "read", input: { path: "app.log" }, toolCallId: "tc2" }, ctx);
@@ -191,7 +191,7 @@ describe("squeeze interception", () => {
     };
     const results = await invokeHandlers(pi, "tool_result", resultEvent, ctx);
 
-    expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", ["squeeze", expect.any(String)], expect.any(Object));
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", ["squeeze", expect.any(String)], expect.any(Object));
     const patch = results.find((r) => r && typeof r === "object" && "content" in r);
     expect(patch).toBeUndefined();
   });
@@ -199,15 +199,10 @@ describe("squeeze interception", () => {
   it("bypasses squeeze when limit or offset is provided", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
+    const { spawn } = await import("node:child_process");
 
     await configureSettings({ enableLogSqueeze: true });
-    vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
-      if (command === "ast-bro" && args[0] === "--version") {
-        return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    vi.mocked(spawn).mockImplementation(() => emitSpawnResponse(0, "", ""));
 
     const ctx = createMockContext({ overrideResult: undefined });
     await invokeHandlers(pi, "tool_call", {
@@ -225,23 +220,26 @@ describe("squeeze interception", () => {
     };
     await invokeHandlers(pi, "tool_result", resultEvent, ctx);
 
-    expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", ["squeeze", expect.any(String)], expect.any(Object));
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", ["squeeze", expect.any(String)], expect.any(Object));
   });
 
   it("falls back to default read when ast-bro squeeze fails", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
+    const { spawnSync, spawn } = await import("node:child_process");
 
     await configureSettings({ enableLogSqueeze: true });
     vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
       if (command === "ast-bro" && args[0] === "--version") {
         return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
       }
-      if (command === "ast-bro" && args[0] === "squeeze") {
-        return { status: 1, stdout: "", stderr: "squeeze failed" } as ReturnType<typeof spawnSync>;
-      }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+    });
+    vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+      if (command === "ast-bro" && args[0] === "squeeze") {
+        return emitSpawnResponse(1, "", "squeeze failed");
+      }
+      return emitSpawnResponse(0, "", "");
     });
 
     const ctx = createMockContext({ overrideResult: undefined });
@@ -256,7 +254,7 @@ describe("squeeze interception", () => {
     };
     const results = await invokeHandlers(pi, "tool_result", resultEvent, ctx);
 
-    expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["squeeze", "/project/app.log"], expect.any(Object));
+    expect(spawn).toHaveBeenCalledWith("ast-bro", ["squeeze", "/project/app.log"], expect.any(Object));
     const patch = results.find((r) => r && typeof r === "object" && "content" in r);
     expect(patch).toBeUndefined();
   });

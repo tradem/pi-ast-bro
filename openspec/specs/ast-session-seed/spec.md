@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD
-
 ## Requirements
-
 ### Requirement: Session seed is opt-in and default-off
 On `session_start`, the extension MAY inject an `ast-bro digest` repo map, but ONLY when the `enableSessionSeed` setting is explicitly enabled. The default SHALL be off so the token-frugality promise stays unconditional.
 
@@ -40,6 +38,15 @@ The extension SHALL record the seed's token/byte cost and attribute later avoide
 ### Requirement: Session seed degrades gracefully
 If `ast-bro digest` is unavailable or errors, the session SHALL start normally with no seed and no crash.
 
+The `generateSessionSeed` function SHALL use an async `runAstBroDigestAsync` wrapper that calls `runAstBroAsync(["digest", ...])` instead of the synchronous `spawnSync` variant, so the `session_start` handler does not block the Node.js event loop during digest computation.
+
 #### Scenario: Digest fails at session start
 - **WHEN** the seed is enabled but `ast-bro digest` errors or is missing
 - **THEN** the session starts without a seed and the failure is logged, not raised
+
+#### Scenario: Digest runs without blocking the event loop
+- **WHEN** `enableSessionSeed` is on and a session starts
+- **THEN** `generateSessionSeed` calls `runAstBroDigestAsync` which uses async `spawn` (not `spawnSync`)
+- **AND** the `session_start` handler `await`s the result, releasing the event loop during digest computation
+- **AND** other concurrent session-start work (TUI init, other plugins) is not delayed
+

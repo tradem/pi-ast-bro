@@ -97,12 +97,8 @@ async function injectSnippet(
 
   let content = fileCache.get(resolved);
   if (content === undefined) {
-    try {
-      content = await readFile(resolved, "utf-8");
-      fileCache.set(resolved, content);
-    } catch {
-      return { originalBytes: 0, filesRead: 0 };
-    }
+    content = await readFile(resolved, "utf-8");
+    fileCache.set(resolved, content);
   }
 
   const snippet = extractSnippet(content, match.line);
@@ -134,6 +130,7 @@ async function augmentArray(
   items: unknown[],
   cwd: string,
   onProgress?: (current: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<AugmentArrayResult> {
   const seenFiles = new Set<string>();
   const fileCache = new Map<string, string>();
@@ -144,6 +141,15 @@ async function augmentArray(
   const total = Math.min(items.length, MAX_RESULTS);
 
   for (let i = 0; i < total; i++) {
+    if (signal?.aborted) {
+      return {
+        results: augmented,
+        originalBytes,
+        filesRead,
+        hadTruncation,
+      };
+    }
+
     const item = items[i];
 
     if (isValidMatch(item)) {
@@ -156,7 +162,7 @@ async function augmentArray(
     }
 
     if (Array.isArray(item)) {
-      const nested = await augmentArray(item, cwd);
+      const nested = await augmentArray(item, cwd, undefined, signal);
       augmented.push(nested.results);
       originalBytes += nested.originalBytes;
       filesRead += nested.filesRead;
@@ -165,7 +171,7 @@ async function augmentArray(
     }
 
     if (typeof item === "object" && item !== null) {
-      const nested = await augmentResult(item, cwd);
+      const nested = await augmentResult(item, cwd, undefined, signal);
       augmented.push(nested.payload);
       originalBytes += nested.originalBytes;
       filesRead += nested.filesRead;
@@ -203,9 +209,17 @@ async function augmentResult(
   parsed: unknown,
   cwd: string,
   onProgress?: (current: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<AugmentResult> {
+  if (signal?.aborted) {
+    const payload: Record<string, unknown> =
+      parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : { raw_result: parsed };
+    payload.attention_required = "Augmentation aborted; exact snippets are unavailable.";
+    return { payload, originalBytes: 0, filesRead: 0, hadTruncation: false };
+  }
+
   if (Array.isArray(parsed)) {
-    const aug = await augmentArray(parsed, cwd, onProgress);
+    const aug = await augmentArray(parsed, cwd, onProgress, signal);
     const payload: Record<string, unknown> = { results: aug.results };
     if (aug.attention_required) payload.attention_required = aug.attention_required;
     return {
@@ -226,8 +240,13 @@ async function augmentResult(
   let hadTruncation = false;
 
   for (const [key, value] of Object.entries(parsed)) {
+    if (signal?.aborted) {
+      result[key] = value;
+      continue;
+    }
+
     if (Array.isArray(value)) {
-      const aug = await augmentArray(value, cwd, onProgress);
+      const aug = await augmentArray(value, cwd, onProgress, signal);
       result[key] = aug.results;
       originalBytes += aug.originalBytes;
       filesRead += aug.filesRead;
@@ -236,7 +255,7 @@ async function augmentResult(
         hadTruncation = true;
       }
     } else if (typeof value === "object" && value !== null) {
-      const nested = await augmentResult(value, cwd);
+      const nested = await augmentResult(value, cwd, undefined, signal);
       result[key] = nested.payload;
       originalBytes += nested.originalBytes;
       filesRead += nested.filesRead;
@@ -349,14 +368,6 @@ export async function executeAstBroRefactorTool(
       };
     }
 
-    if (signal?.aborted) {
-      return {
-        content: [{ type: "text", text: `ast-bro ${subcommand} aborted.` }],
-        isError: true,
-        details: { exitCode: null },
-      };
-    }
-
     if (result.status !== 0) {
       const output = result.stdout || result.stderr || `ast-bro ${subcommand} failed.`;
       const hint = output.includes("no symbol matches")
@@ -382,11 +393,28 @@ export async function executeAstBroRefactorTool(
       };
     }
 
-    const augmented = await augmentResult(parsed, ctx.cwd, (current, total) => {
-      throttle.progress(
-        progressPayload("augmenting", `augmenting snippet ${current}/${total}…`, current, total),
-      );
-    });
+    let augmented: { payload: unknown; originalBytes: number; filesRead: number; hadTruncation: boolean };
+    try {
+      augmented = await augmentResult(parsed, ctx.cwd, (current, total) => {
+        throttle.progress(
+          progressPayload("augmenting", `augmenting snippet ${current}/${total}…`, current, total),
+        );
+      }, signal);
+    } catch (augErr) {
+      const fallback: Record<string, unknown> = parsed && typeof parsed === "object"
+        ? { ...(parsed as Record<string, unknown>) }
+        : { raw_result: parsed };
+      fallback.augmentation_error = augErr instanceof Error ? augErr.message : String(augErr);
+      fallback.attention_required =
+        "Snippet augmentation failed; exact snippets are unavailable. Use `read` for precise edits.";
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(fallback, null, 2) }],
+        isError: false,
+        details: { exitCode: result.status },
+      };
+    }
+
     const outputText = JSON.stringify(augmented.payload, null, 2);
     const outputBytes = Buffer.byteLength(outputText, "utf-8");
     const savedBytes = Math.max(0, augmented.originalBytes - outputBytes);
@@ -403,6 +431,14 @@ export async function executeAstBroRefactorTool(
       content: [{ type: "text", text: outputText }],
       isError: false,
       details: { exitCode: result.status },
+    };
+  } catch (err) {
+    throttle.flush();
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: [{ type: "text", text: `Internal error: ${message}` }],
+      isError: true,
+      details: { exitCode: null, augmentation_error: message },
     };
   } finally {
     throttle.flush();
