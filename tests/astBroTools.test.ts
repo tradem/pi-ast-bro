@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { executeAstBroRefactorTool, AnalyzeAstImpactSchema, FindImplementationsSchema } from "../src/astBroTools.js";
+import { clearAstBroInfoCache } from "../src/utils.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -12,6 +17,10 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
   statSync: vi.fn(),
   writeFileSync: vi.fn(),
+}));
+
+vi.mock("node:fs/promises", () => ({
+  readFile: vi.fn(),
 }));
 
 function createMockContext() {
@@ -29,30 +38,31 @@ function createMockContext() {
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
 }
 
-function mockAstBroAvailable() {
-  vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-    if (command === "ast-bro" && args[0] === "--version") {
+function mockAstBroAvailable(): void {
+  vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "ast-bro" && args?.[0] === "--version") {
       return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
     }
-    if (command === "which" && args[0] === "ast-bro") {
+    if (command === "which" && args?.[0] === "ast-bro") {
       return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
     }
     return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
   });
 }
 
-async function mockFileSystem(opts: { path: string; content: string; size: number }) {
-  const { existsSync, readFileSync, statSync } = await import("node:fs");
-  vi.mocked(existsSync as unknown as ReturnType<typeof vi.fn>).mockImplementation((p: string) => p === opts.path);
-  vi.mocked(readFileSync as unknown as ReturnType<typeof vi.fn>).mockImplementation((p: string) => (p === opts.path ? opts.content : ""));
-  vi.mocked(statSync as unknown as ReturnType<typeof vi.fn>).mockImplementation((p: string) =>
-    p === opts.path ? ({ size: opts.size } as ReturnType<typeof statSync>) : ({ size: 0 } as ReturnType<typeof statSync>),
+async function mockFileSystem(opts: { path: string; content: string }) {
+  vi.mocked(existsSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (p: string) => p === opts.path,
+  );
+  vi.mocked(readFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (p: string) =>
+    p === opts.path ? opts.content : "",
   );
 }
 
 describe("astBroTools", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearAstBroInfoCache();
   });
 
   describe("executeAstBroRefactorTool", () => {
@@ -60,26 +70,17 @@ describe("astBroTools", () => {
       mockAstBroAvailable();
       await mockFileSystem({
         path: "/project/src/lib.rs",
-        content: ["pub mod one;", "pub mod two;", "pub fn target() {}", "pub fn four() {}", "pub fn five() {}"].join("\n"),
-        size: 5_000,
+        content: ["pub mod one;", "pub mod two;", "pub fn target() {}", "pub fn four() {}", "pub fn five() {}"].join(
+          "\n",
+        ) + "\n" + "// padding\n".repeat(200),
       });
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "which" && args[0] === "ast-bro") {
-          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "ast-bro" && args[0] === "impact") {
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
           expect(args).toEqual(["impact", "--json", "src/lib.rs:target"]);
-          return {
-            status: 0,
-            stdout: JSON.stringify([{ file: "src/lib.rs", line: 3, kind: "caller" }]),
-            stderr: "",
-          } as ReturnType<typeof spawnSync>;
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 3, kind: "caller" }]), "");
         }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
@@ -102,21 +103,14 @@ describe("astBroTools", () => {
       await mockFileSystem({
         path: "/project/src/lib.rs",
         content: "line\n".repeat(60),
-        size: 100,
       });
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "which" && args[0] === "ast-bro") {
-          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "ast-bro" && args[0] === "implements") {
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "implements") {
           const items = Array.from({ length: 55 }, (_, i) => ({ file: "src/lib.rs", line: i + 1, kind: "impl" }));
-          return { status: 0, stdout: JSON.stringify(items), stderr: "" } as ReturnType<typeof spawnSync>;
+          return emitSpawnResponse(0, JSON.stringify(items), "");
         }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
@@ -135,21 +129,23 @@ describe("astBroTools", () => {
       mockAstBroAvailable();
       await mockFileSystem({
         path: "/project/src/lib.rs",
-        content: ["pub struct Player;", "impl Player {", "    pub fn take_damage(&self) {}", "}", "pub fn enemy_attack(p: &Player) { p.take_damage() }"].join("\n"),
-        size: 2_000,
+        content:
+          [
+            "pub struct Player;",
+            "impl Player {",
+            "    pub fn take_damage(&self) {}",
+            "}",
+            "pub fn enemy_attack(p: &Player) { p.take_damage() }",
+          ].join("\n") +
+          "\n" +
+          "// padding\n".repeat(200),
       });
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "which" && args[0] === "ast-bro") {
-          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "ast-bro" && args[0] === "impact") {
-          return {
-            status: 0,
-            stdout: JSON.stringify({
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(
+            0,
+            JSON.stringify({
               schema: "ast-bro.impact.v1",
               target: "Player.take_damage",
               impacts: [
@@ -163,10 +159,10 @@ describe("astBroTools", () => {
                 },
               ],
             }),
-            stderr: "",
-          } as ReturnType<typeof spawnSync>;
+            "",
+          );
         }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
@@ -178,6 +174,28 @@ describe("astBroTools", () => {
       };
       expect(payload.impacts[0].sections[0].entries[0].exact_snippet).toContain("enemy_attack");
       expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("saved"), "info");
+    });
+
+    it("reads each file at most once per execute()", async () => {
+      mockAstBroAvailable();
+      await mockFileSystem({
+        path: "/project/src/lib.rs",
+        content: ["pub fn one() {}", "pub fn two() {}", "pub fn three() {}"].join("\n"),
+      });
+
+      const items = Array.from({ length: 10 }, (_, i) => ({ file: "src/lib.rs", line: (i % 3) + 1 }));
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(0, JSON.stringify(items), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      await executeAstBroRefactorTool("impact", "target", undefined, ctx);
+
+      expect(readFile).toHaveBeenCalledTimes(1);
+      expect(readFile).toHaveBeenCalledWith("/project/src/lib.rs", "utf-8");
     });
 
     it("rejects unsafe target paths", async () => {
@@ -193,17 +211,11 @@ describe("astBroTools", () => {
     it("returns an error when ast-bro exits non-zero", async () => {
       mockAstBroAvailable();
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(1, "", "parse error");
         }
-        if (command === "which" && args[0] === "ast-bro") {
-          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "ast-bro" && args[0] === "impact") {
-          return { status: 1, stdout: "", stderr: "parse error" } as ReturnType<typeof spawnSync>;
-        }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
@@ -216,17 +228,11 @@ describe("astBroTools", () => {
     it("falls back to raw stdout when the CLI does not emit JSON", async () => {
       mockAstBroAvailable();
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(0, "legacy impact result", "");
         }
-        if (command === "which" && args[0] === "ast-bro") {
-          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        if (command === "ast-bro" && args[0] === "impact") {
-          return { status: 0, stdout: "legacy impact result", stderr: "" } as ReturnType<typeof spawnSync>;
-        }
-        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "", "");
       });
 
       const ctx = createMockContext();
@@ -234,6 +240,25 @@ describe("astBroTools", () => {
 
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toContain("legacy impact result");
+    });
+
+    it("returns an error when aborted", async () => {
+      mockAstBroAvailable();
+      const controller = new AbortController();
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          controller.abort();
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("impact", "make_ctx", undefined, ctx, undefined, controller.signal);
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("aborted");
     });
   });
 

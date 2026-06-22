@@ -1,8 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsManager } from "./config.js";
-import { isAstBroAvailable, isPathSafe } from "./utils.js";
+import { isAstBroAvailable, isPathSafe, runAstBroAsync } from "./utils.js";
 
 /**
  * TypeBox schema for the AST context pilot tool.
@@ -42,11 +41,16 @@ function isTargetSafe(target: string): boolean {
  *
  * The CLI shape is `context [target] path` with flags before positional args.
  */
-function runAstBroContext(targetPath: string, target?: string, budget?: number): AstBroContextResult | null {
+async function runAstBroContext(
+  targetPath: string,
+  target: string | undefined,
+  budget: number,
+  signal?: AbortSignal,
+): Promise<AstBroContextResult | null> {
   if (!isPathSafe(targetPath)) return null;
   if (target !== undefined && !isTargetSafe(target)) return null;
 
-  const args = ["context", "--json", "--compact", "--budget", String(budget ?? 4000)];
+  const args = ["context", "--json", "--compact", "--budget", String(budget)];
   if (target) {
     args.push(target, targetPath);
   } else {
@@ -54,16 +58,7 @@ function runAstBroContext(targetPath: string, target?: string, budget?: number):
   }
 
   try {
-    const result = spawnSync("ast-bro", args, {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 60_000,
-    });
-    return {
-      status: result.status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-    };
+    return await runAstBroAsync(args, { signal, timeoutMs: 60_000 });
   } catch {
     return null;
   }
@@ -100,7 +95,7 @@ export function registerAstContextTool(pi: ExtensionAPI, settings: SettingsManag
     async execute(
       _toolCallId: string,
       params: AnalyzeAstContextParams,
-      _signal: AbortSignal | undefined,
+      signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
@@ -123,9 +118,13 @@ export function registerAstContextTool(pi: ExtensionAPI, settings: SettingsManag
       const config = await settings.load(ctx.cwd);
       const budget = params.budget ?? config.contextDefaultBudget;
 
-      const result = runAstBroContext(params.path, params.target, budget);
+      const result = await runAstBroContext(params.path, params.target, budget, signal);
       if (!result) {
         return errorResult("Failed to run ast-bro context.");
+      }
+
+      if (signal?.aborted) {
+        return errorResult("ast-bro context aborted.");
       }
 
       return {

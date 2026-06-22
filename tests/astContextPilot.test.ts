@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "../src/config.js";
+import { clearAstBroInfoCache } from "../src/utils.js";
 import { registerAstContextTool } from "../src/astContextPilot.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -91,21 +94,18 @@ function mockAstBroAvailable(): void {
 describe("astContextPilot", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearAstBroInfoCache();
   });
 
   it("spawns ast-bro context with target, path, and explicit budget", async () => {
     mockSettings();
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "context") {
-        return { status: 0, stdout: "{\"ok\":true}", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "{\"ok\":true}", "");
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -121,7 +121,7 @@ describe("astContextPilot", () => {
       createMockContext(),
     );
 
-    expect(spawnSync).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       "ast-bro",
       ["context", "--json", "--compact", "--budget", "8000", "CostumeAggregate", "backend/crates/core"],
       expect.any(Object),
@@ -132,17 +132,13 @@ describe("astContextPilot", () => {
 
   it("uses contextDefaultBudget from settings when budget is omitted", async () => {
     mockSettings({ contextDefaultBudget: 6000 });
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "context") {
-        return { status: 0, stdout: "{\"ok\":true}", stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, "{\"ok\":true}", "");
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -152,7 +148,7 @@ describe("astContextPilot", () => {
 
     await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
 
-    expect(spawnSync).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       "ast-bro",
       ["context", "--json", "--compact", "--budget", "6000", "src/lib.rs"],
       expect.any(Object),
@@ -161,17 +157,13 @@ describe("astContextPilot", () => {
 
   it("returns an error when ast-bro context exits non-zero", async () => {
     mockSettings();
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "context") {
-        return { status: 1, stdout: "", stderr: "context failed" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(1, "", "context failed");
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -202,7 +194,7 @@ describe("astContextPilot", () => {
       createMockContext(),
     );
 
-    expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", expect.arrayContaining(["context"]), expect.any(Object));
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", expect.arrayContaining(["context"]), expect.any(Object));
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("Invalid or unsafe file path");
   });
@@ -224,7 +216,7 @@ describe("astContextPilot", () => {
       createMockContext(),
     );
 
-    expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", expect.arrayContaining(["context"]), expect.any(Object));
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", expect.arrayContaining(["context"]), expect.any(Object));
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("Invalid or unsafe target symbol");
   });
@@ -245,8 +237,42 @@ describe("astContextPilot", () => {
     const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
 
     expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["--version"], expect.any(Object));
+    expect(spawn).not.toHaveBeenCalled();
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("not installed");
+  });
+
+  it("returns an error when the call is aborted", async () => {
+    mockSettings();
+    mockAstBroAvailable();
+
+    const controller = new AbortController();
+
+    vi.mocked(spawn).mockImplementation((command: string, _args?: readonly string[]) => {
+      if (command === "ast-bro") {
+        const child = emitSpawnResponse(0, "{\"ok\":true}", "");
+        // Simulate the abort firing before the child closes.
+        controller.abort();
+        return child;
+      }
+      return emitSpawnResponse(0, "", "");
+    });
+
+    const pi = createMockPi();
+    const settings = new SettingsManager();
+    registerAstContextTool(pi as never, settings);
+    const tool = getTool(pi, "analyze_ast_context");
+
+    const result = await tool.execute(
+      "tc",
+      { path: "src/lib.rs" },
+      controller.signal,
+      undefined,
+      createMockContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(getText(result)).toContain("aborted");
   });
 });
 

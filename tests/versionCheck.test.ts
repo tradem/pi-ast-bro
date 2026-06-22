@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearAstBroInfoCache } from "../src/utils.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("@earendil-works/pi-coding-agent", async () => {
   const actual = await vi.importActual<typeof import("@earendil-works/pi-coding-agent")>(
@@ -11,6 +13,7 @@ vi.mock("@earendil-works/pi-coding-agent", async () => {
 });
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -57,21 +60,30 @@ function createMockContext(): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
+function mockVersionCheck(version: string): void {
+  vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "ast-bro" && args?.[0] === "--version") {
+      return emitSpawnResponse(0, version, "");
+    }
+    return emitSpawnResponse(0, "", "");
+  });
+
+  vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "which" && args?.[0] === "ast-bro") {
+      return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+    }
+    return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+  });
+}
+
 describe("pi version compatibility check", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearAstBroInfoCache();
   });
 
   it("warns but keeps running when pi-coding-agent version is outside the tested range", async () => {
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    mockVersionCheck("3.0.0");
 
     const pi = createMockPi();
     extensionFactory(pi);

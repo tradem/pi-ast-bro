@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearAstBroInfoCache } from "../src/utils.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -50,21 +53,30 @@ function createMockContext(): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
+function mockVersionCheck(version: string): void {
+  vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "ast-bro" && args?.[0] === "--version") {
+      return emitSpawnResponse(0, version, "");
+    }
+    return emitSpawnResponse(0, "", "");
+  });
+
+  vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "which" && args?.[0] === "ast-bro") {
+      return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+    }
+    return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+  });
+}
+
 describe("ast-bro version compatibility check", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearAstBroInfoCache();
   });
 
   it("disables the extension when ast-bro version is below the supported range", async () => {
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "0.0.1", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    mockVersionCheck("0.0.1");
 
     const pi = createMockPi();
     extensionFactory(pi);
@@ -89,15 +101,7 @@ describe("ast-bro version compatibility check", () => {
   });
 
   it("accepts ast-bro 3.0.0 as supported", async () => {
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    mockVersionCheck("3.0.0");
 
     const pi = createMockPi();
     extensionFactory(pi);
@@ -111,15 +115,7 @@ describe("ast-bro version compatibility check", () => {
   });
 
   it("extracts the semver from prefixed version output like 'ast-bro 3.1.0'", async () => {
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "ast-bro 3.1.0\n", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    mockVersionCheck("ast-bro 3.1.0\n");
 
     const pi = createMockPi();
     extensionFactory(pi);

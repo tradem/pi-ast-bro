@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extensionFactory from "../src/index.js";
 import { clearSessionSeed } from "../src/sessionSeedState.js";
+import { clearAstBroInfoCache } from "../src/utils.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
@@ -116,11 +119,31 @@ async function configureSettings(seedOptions: {
   });
 }
 
+function mockAstBro(version: string, digestStdout = ""): void {
+  vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "ast-bro" && args?.[0] === "--version") {
+      return emitSpawnResponse(0, version, "");
+    }
+    return emitSpawnResponse(0, "", "");
+  });
+
+  vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "which" && args?.[0] === "ast-bro") {
+      return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+    }
+    if (command === "ast-bro" && args?.[0] === "digest") {
+      return { status: 0, stdout: digestStdout, stderr: "" } as ReturnType<typeof spawnSync>;
+    }
+    return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+  });
+}
+
 describe("session seed", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.spyOn(process, "on").mockReturnValue(process);
     clearSessionSeed("/project");
+    clearAstBroInfoCache();
   });
 
   afterEach(() => {
@@ -133,8 +156,8 @@ describe("session seed", () => {
     const { spawnSync } = await import("node:child_process");
 
     await configureSettings({ enabled: false });
-    vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
-      if (command === "ast-bro" && args[0] === "--version") {
+    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "--version") {
         return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
       }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
@@ -157,15 +180,7 @@ describe("session seed", () => {
     const { spawnSync } = await import("node:child_process");
 
     await configureSettings({ enabled: true });
-    vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
-      if (command === "ast-bro" && args[0] === "--version") {
-        return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "ast-bro" && args[0] === "digest") {
-        return { status: 0, stdout: "digest output", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    mockAstBro("ast-bro 3.0.0", "digest output");
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
@@ -184,23 +199,10 @@ describe("session seed", () => {
   it("trims and annotates when the digest exceeds the budget", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
-    const { spawnSync } = await import("node:child_process");
 
     await configureSettings({ enabled: true, budget: 500 });
     const longDigest = "x".repeat(3000);
-    vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
-      if (command === "ast-bro" && args[0] === "--version") {
-        return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "ast-bro" && args[0] === "digest") {
-        return {
-          status: 0,
-          stdout: longDigest,
-          stderr: "",
-        } as ReturnType<typeof spawnSync>;
-      }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
-    });
+    mockAstBro("ast-bro 3.0.0", longDigest);
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
@@ -216,14 +218,21 @@ describe("session seed", () => {
   it("falls back gracefully when ast-bro digest fails", async () => {
     const pi = createMockPi();
     extensionFactory(pi);
+    const { spawn } = await import("node:child_process");
     const { spawnSync } = await import("node:child_process");
 
     await configureSettings({ enabled: true });
-    vi.mocked(spawnSync).mockImplementation((command: string, args: readonly string[]) => {
-      if (command === "ast-bro" && args[0] === "--version") {
-        return { status: 0, stdout: "ast-bro 3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "--version") {
+        return emitSpawnResponse(0, "ast-bro 3.0.0", "");
       }
-      if (command === "ast-bro" && args[0] === "digest") {
+      return emitSpawnResponse(0, "", "");
+    });
+    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "which" && args?.[0] === "ast-bro") {
+        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+      }
+      if (command === "ast-bro" && args?.[0] === "digest") {
         return { status: 1, stdout: "", stderr: "digest error" } as ReturnType<typeof spawnSync>;
       }
       return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;

@@ -18,7 +18,7 @@ import { clearSessionSeed, getSessionSeed, isSessionSeedActive, setSessionSeed }
 import { registerAstCommand, registerAstGainCommand } from "./tui.js";
 import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
-import { getAstBroInfo, isAstBroAvailable, resolveRepoRoot, runAstBroDigest, satisfiesSemver } from "./utils.js";
+import { clearAstBroInfoCache, getAstBroInfo, isAstBroAvailable, resolveRepoRoot, runAstBroDigest, satisfiesSemver } from "./utils.js";
 import { SUPPORTED_AST_BRO_RANGE, SUPPORTED_PI_RANGE } from "./constants.js";
 
 const SESSION_SEED_CUSTOM_TYPE = "ast-bro-session-seed";
@@ -174,7 +174,7 @@ function initializeExtension(pi: ExtensionAPI): void {
     const config = await settings.load(ctx.cwd);
     if (!config.enabled) return;
 
-    const astBroInfo = getAstBroInfo();
+    const astBroInfo = await getAstBroInfo();
     if (astBroInfo.available && astBroInfo.version && !satisfiesSemver(astBroInfo.version, SUPPORTED_AST_BRO_RANGE)) {
       const message = `pi-ast-bro: installed ast-bro (${astBroInfo.version}) is not supported. Expected ${SUPPORTED_AST_BRO_RANGE}. Extension disabled.`;
       try {
@@ -231,6 +231,7 @@ function initializeExtension(pi: ExtensionAPI): void {
       }
 
       await maybePrepareSessionSeed(ctx, config, stats);
+      clearAstBroInfoCache();
       ctx.ui.notify("pi-ast-bro: ast-bro installed successfully", "info");
     } catch (err) {
       ctx.ui.notify(

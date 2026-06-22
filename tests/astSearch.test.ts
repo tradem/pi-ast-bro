@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerAstTools, parseSearchSummary, trimSearchSnippets } from "../src/tools.js";
 import { StatsManager } from "../src/statsManager.js";
 import type { Settings } from "../src/config.js";
 import type { SettingsManager } from "../src/config.js";
+import { clearAstBroInfoCache } from "../src/utils.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -81,6 +84,18 @@ function createMockSettings(overrides: Partial<Settings> = {}): SettingsManager 
   } as unknown as SettingsManager;
 }
 
+function mockAstBroAvailable(): void {
+  vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "ast-bro" && args?.[0] === "--version") {
+      return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
+    }
+    if (command === "which" && args?.[0] === "ast-bro") {
+      return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
+    }
+    return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+  });
+}
+
 describe("parseSearchSummary", () => {
   it("groups hits by file and range", () => {
     const stdout = [
@@ -116,20 +131,16 @@ describe("parseSearchSummary", () => {
 describe("analyze_ast_search summary mode", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearAstBroInfoCache();
   });
 
   function mockSearchStdout(stdout: string, status = 0): void {
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "search") {
-        return { status, stdout, stderr: status !== 0 ? "search error" : "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(status, stdout, status !== 0 ? "search error" : "");
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
   }
 
@@ -214,7 +225,13 @@ describe("analyze_ast_search summary mode", () => {
     registerAstTools(pi, stats, createMockSettings());
     const tool = getTool(pi, "analyze_ast_search");
 
-    const result = await tool.execute("tc", { query: "x", mode: "summary" }, undefined, undefined, createMockContext());
+    const result = await tool.execute(
+      "tc",
+      { query: "x", mode: "summary" },
+      undefined,
+      undefined,
+      createMockContext(),
+    );
 
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("search error");

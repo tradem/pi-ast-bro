@@ -80,7 +80,7 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
     async execute(
       _toolCallId: string,
       params: AnalyzeAstTraceParams,
-      _signal: AbortSignal | undefined,
+      signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
@@ -103,9 +103,13 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
         resolvedPath = resolve(ctx.cwd, params.path);
       }
 
-      const result = runAstBroTrace(params.from, params.to, resolvedPath);
+      const result = await runAstBroTrace(params.from, params.to, resolvedPath, { signal });
       if (!result) {
         return errorResult("Failed to run ast-bro trace.");
+      }
+
+      if (signal?.aborted) {
+        return errorResult("ast-bro trace aborted.");
       }
 
       const config = await settings.load(ctx.cwd);
@@ -132,7 +136,7 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
     async execute(
       _toolCallId: string,
       params: AnalyzeAstSurfaceParams,
-      _signal: AbortSignal | undefined,
+      signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
@@ -145,9 +149,13 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
       }
 
       const resolvedPath = resolve(ctx.cwd, params.path);
-      const result = runAstBroSurface(resolvedPath);
+      const result = await runAstBroSurface(resolvedPath, { signal });
       if (!result) {
         return errorResult("Failed to run ast-bro surface.");
+      }
+
+      if (signal?.aborted) {
+        return errorResult("ast-bro surface aborted.");
       }
 
       return {

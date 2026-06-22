@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "../src/config.js";
+import { clearAstBroInfoCache } from "../src/utils.js";
 import { registerAstGraphTool } from "../src/astGraphPilot.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -85,25 +88,22 @@ function mockAstBroAvailable(): void {
 describe("astGraphPilot", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearAstBroInfoCache();
   });
 
   it("spawns ast-bro graph with the resolved path", async () => {
     mockSettings();
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "graph") {
-        return {
-          status: 0,
-          stdout: JSON.stringify({ nodes: [], edges: [{ from: "a", to: "b" }] }),
-          stderr: "",
-        } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(
+          0,
+          JSON.stringify({ nodes: [], edges: [{ from: "a", to: "b" }] }),
+          "",
+        );
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -119,7 +119,7 @@ describe("astGraphPilot", () => {
       createMockContext(),
     );
 
-    expect(spawnSync).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       "ast-bro",
       ["graph", "--json", "--compact", "--hide-external", "/project/backend/crates/core"],
       expect.any(Object),
@@ -132,17 +132,13 @@ describe("astGraphPilot", () => {
 
   it("defaults to the current working directory when no path is provided", async () => {
     mockSettings();
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "graph") {
-        return { status: 0, stdout: JSON.stringify({ edges: [] }), stderr: "" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(0, JSON.stringify({ edges: [] }), "");
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -152,7 +148,7 @@ describe("astGraphPilot", () => {
 
     await tool.execute("tc", {}, undefined, undefined, createMockContext());
 
-    expect(spawnSync).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       "ast-bro",
       ["graph", "--json", "--compact", "--hide-external", "/project"],
       expect.any(Object),
@@ -161,24 +157,20 @@ describe("astGraphPilot", () => {
 
   it("truncates edges to graphMaxEdges and annotates the result", async () => {
     mockSettings({ graphMaxEdges: 2 });
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "graph") {
-        return {
-          status: 0,
-          stdout: JSON.stringify({
+        return emitSpawnResponse(
+          0,
+          JSON.stringify({
             nodes: [],
             edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }, { from: "c", to: "d" }],
           }),
-          stderr: "",
-        } as ReturnType<typeof spawnSync>;
+          "",
+        );
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -197,21 +189,17 @@ describe("astGraphPilot", () => {
 
   it("does not annotate truncation when the graph is within the limit", async () => {
     mockSettings({ graphMaxEdges: 10 });
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "graph") {
-        return {
-          status: 0,
-          stdout: JSON.stringify({ nodes: [], edges: [{ from: "a", to: "b" }] }),
-          stderr: "",
-        } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(
+          0,
+          JSON.stringify({ nodes: [], edges: [{ from: "a", to: "b" }] }),
+          "",
+        );
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -228,17 +216,13 @@ describe("astGraphPilot", () => {
 
   it("returns an error when ast-bro graph exits non-zero", async () => {
     mockSettings();
-    vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
-      if (command === "ast-bro" && args?.[0] === "--version") {
-        return { status: 0, stdout: "1.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
-      if (command === "which" && args?.[0] === "ast-bro") {
-        return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
-      }
+    mockAstBroAvailable();
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
       if (command === "ast-bro" && args?.[0] === "graph") {
-        return { status: 1, stdout: "", stderr: "graph failed" } as ReturnType<typeof spawnSync>;
+        return emitSpawnResponse(1, "", "graph failed");
       }
-      return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      return emitSpawnResponse(0, "", "");
     });
 
     const pi = createMockPi();
@@ -269,7 +253,7 @@ describe("astGraphPilot", () => {
       createMockContext(),
     );
 
-    expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", expect.arrayContaining(["graph"]), expect.any(Object));
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", expect.arrayContaining(["graph"]), expect.any(Object));
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("Invalid or unsafe file path");
   });

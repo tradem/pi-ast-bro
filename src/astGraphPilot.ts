@@ -1,9 +1,8 @@
-import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsManager } from "./config.js";
-import { isAstBroAvailable, isPathSafe } from "./utils.js";
+import { isAstBroAvailable, isPathSafe, runAstBroAsync } from "./utils.js";
 
 /**
  * TypeBox schema for the AST graph pilot tool.
@@ -31,20 +30,14 @@ interface GraphPayload {
   [key: string]: unknown;
 }
 
-function runAstBroGraph(filePath: string): AstBroGraphResult | null {
+async function runAstBroGraph(filePath: string, signal?: AbortSignal): Promise<AstBroGraphResult | null> {
   if (!isPathSafe(filePath)) return null;
 
   try {
-    const result = spawnSync("ast-bro", ["graph", "--json", "--compact", "--hide-external", filePath], {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 60_000,
+    return await runAstBroAsync(["graph", "--json", "--compact", "--hide-external", filePath], {
+      signal,
+      timeoutMs: 60_000,
     });
-    return {
-      status: result.status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-    };
   } catch {
     return null;
   }
@@ -118,7 +111,7 @@ export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager
     async execute(
       _toolCallId: string,
       params: AnalyzeAstGraphParams,
-      _signal: AbortSignal | undefined,
+      signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
@@ -138,9 +131,13 @@ export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager
         return errorResult("No valid working directory available to scope the graph.");
       }
 
-      const result = runAstBroGraph(resolvedPath);
+      const result = await runAstBroGraph(resolvedPath, signal);
       if (!result) {
         return errorResult("Failed to run ast-bro graph.");
+      }
+
+      if (signal?.aborted) {
+        return errorResult("ast-bro graph aborted.");
       }
 
       if (result.status !== 0) {

@@ -72,10 +72,10 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
       const initialSettings = await settings.load(ctx.cwd);
       const mutableSettings: Settings = { ...initialSettings };
 
-      await ctx.ui.custom<undefined>((tui, theme, _keybindings, done) => {
+      await ctx.ui.custom<undefined>(async (tui, theme, _keybindings, done) => {
         const container = new Container();
 
-        const astBroInfo = getAstBroInfo();
+        const astBroInfo = await getAstBroInfo();
         const extensionVersion = getExtensionVersion();
         const statusColor = astBroInfo.available ? "success" : "error";
         const statusText = astBroInfo.available ? "available" : "not found";

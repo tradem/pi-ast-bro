@@ -9,6 +9,15 @@ export interface AstBroInfo {
   version?: string;
 }
 
+interface RunAstBroAsyncOptions {
+  cwd?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+let cachedAstBroInfo: AstBroInfo | undefined;
+let astBroInfoComputation: Promise<AstBroInfo> | undefined;
+
 /**
  * Extract the first semver-looking substring from a version output line.
  *
@@ -21,12 +30,81 @@ function extractSemver(versionOutput: string): string | undefined {
 }
 
 /**
- * Discover whether `ast-bro` is available and, if so, its resolved path and
- * version.
+ * Run `ast-bro` asynchronously with argument arrays (no shell).
  *
- * Uses spawnSync with argument arrays to prevent shell injection.
+ * Buffers stdout/stderr from `data` events and resolves on `close`.
+ * Errors on the child process are captured and returned with `status: null`.
+ * If an `AbortSignal` is provided, the child is killed when it fires and the
+ * Promise resolves shortly after.
  */
-export function getAstBroInfo(): AstBroInfo {
+export function runAstBroAsync(
+  args: string[],
+  options: RunAstBroAsyncOptions = {},
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("ast-bro", args, {
+      cwd: options.cwd,
+      stdio: "pipe",
+      timeout: options.timeoutMs ?? 30_000,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let aborted = false;
+
+    const onStdout = (data: Buffer) => {
+      stdout += data.toString("utf-8");
+    };
+    const onStderr = (data: Buffer) => {
+      stderr += data.toString("utf-8");
+    };
+
+    child.stdout?.on("data", onStdout);
+    child.stderr?.on("data", onStderr);
+
+    const cleanup = () => {
+      child.stdout?.off("data", onStdout);
+      child.stderr?.off("data", onStderr);
+      child.off("error", onError);
+      child.off("close", onClose);
+      if (options.signal) {
+        options.signal.removeEventListener("abort", onAbort);
+      }
+    };
+
+    const onError = (err: Error) => {
+      cleanup();
+      resolve({ status: null, stdout, stderr: stderr || err.message });
+    };
+
+    const onClose = (code: number | null) => {
+      cleanup();
+      if (aborted || options.signal?.aborted) {
+        resolve({ status: null, stdout, stderr: stderr || "ast-bro command aborted." });
+        return;
+      }
+      resolve({ status: code, stdout, stderr });
+    };
+
+    child.on("error", onError);
+    child.on("close", onClose);
+
+    const onAbort = () => {
+      aborted = true;
+      child.kill();
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        onAbort();
+        return;
+      }
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
+function computeAstBroInfoSync(): AstBroInfo {
   let version: string | undefined;
   let available = false;
 
@@ -63,10 +141,80 @@ export function getAstBroInfo(): AstBroInfo {
 }
 
 /**
+ * Discover whether `ast-bro` is available and, if so, its resolved path and
+ * version.
+ *
+ * Uses `runAstBroAsync` with argument arrays to prevent shell injection.
+ * The result is cached for the lifetime of the session.
+ */
+export async function getAstBroInfo(): Promise<AstBroInfo> {
+  if (cachedAstBroInfo) {
+    return cachedAstBroInfo;
+  }
+
+  if (astBroInfoComputation) {
+    return astBroInfoComputation;
+  }
+
+  astBroInfoComputation = (async (): Promise<AstBroInfo> => {
+    let version: string | undefined;
+    let available = false;
+
+    try {
+      const versionResult = await runAstBroAsync(["--version"], { timeoutMs: 10_000 });
+      if (versionResult.status === 0 && versionResult.stdout) {
+        available = true;
+        const raw = versionResult.stdout.trim().split("\n")[0] ?? "";
+        version = extractSemver(raw);
+      }
+    } catch {
+      return { available: false };
+    }
+
+    let path: string | undefined;
+    try {
+      const whichResult = spawnSync("which", ["ast-bro"], {
+        encoding: "utf-8",
+        stdio: "pipe",
+        timeout: 10_000,
+      });
+      if (whichResult.status === 0 && whichResult.stdout) {
+        path = whichResult.stdout.trim().split("\n")[0];
+      }
+    } catch {
+      // `which` may be unavailable; fall back to just knowing availability/version.
+    }
+
+    const info: AstBroInfo = { available, version, path };
+    cachedAstBroInfo = info;
+    return info;
+  })();
+
+  return astBroInfoComputation;
+}
+
+/**
+ * Clear the cached ast-bro availability information.
+ *
+ * Exposed so the extension can re-check after installing the binary mid-session.
+ */
+export function clearAstBroInfoCache(): void {
+  cachedAstBroInfo = undefined;
+  astBroInfoComputation = undefined;
+}
+
+/**
  * Check whether the `ast-bro` binary is on the user's PATH.
+ *
+ * Performs a cached synchronous check. On the first call within a session the
+ * cache is populated synchronously so that callers (including the read/write
+ * interceptors) are not forced into an async context.
  */
 export function isAstBroAvailable(): boolean {
-  return getAstBroInfo().available;
+  if (!cachedAstBroInfo) {
+    cachedAstBroInfo = computeAstBroInfoSync();
+  }
+  return cachedAstBroInfo.available;
 }
 
 /** Return true if the file extension is in the configured supported list. */
@@ -124,7 +272,7 @@ export function getFileLineCount(filePath: string): number {
 /**
  * Reject paths that contain shell metacharacters or other dangerous content.
  *
- * ast-bro is invoked via spawnSync with an argument array, so injection is
+ * ast-bro is invoked via spawn with an argument array, so injection is
  * already impossible. This guard adds defense-in-depth and makes unsafe paths
  * fail fast with a clear fallback to the normal read/edit flow.
  */
@@ -144,6 +292,8 @@ export function isPathSafe(filePath: string): boolean {
  *
  * Wrapped in try/catch so any crash (missing binary, panic, hang) returns
  * `null` and the caller can fall back to default behavior.
+ *
+ * Kept synchronous for the read/squeeze interceptor fast path.
  */
 export function runAstBro(
   subcommand: "context" | "map" | "impact" | "implements" | "search" | "squeeze" | "cycles" | "index",
@@ -175,6 +325,8 @@ export function runAstBro(
 
 /**
  * Run `ast-bro squeeze` on a log/text file.
+ *
+ * Kept synchronous for the squeeze interceptor fast path.
  */
 export function runAstBroSqueeze(
   filePath: string,
@@ -184,8 +336,6 @@ export function runAstBroSqueeze(
 
 /**
  * Run `ast-bro index --stats` to inspect the index state.
- *
- * This is used to verify that an index exists before marking it stale.
  */
 export function runAstBroIndexStats(
   repoPath: string,
@@ -233,6 +383,8 @@ function isSymbolSafe(symbol: string): boolean {
 
 /**
  * Run `ast-bro cycles --json [PATH]`.
+ *
+ * Kept synchronous for the edit-interceptor cycle check.
  */
 export function runAstBroCycles(
   repoPath: string,
@@ -257,27 +409,22 @@ export function runAstBroCycles(
 /**
  * Run `ast-bro trace <FROM> <TO> [PATH]`.
  */
-export function runAstBroTrace(
+export async function runAstBroTrace(
   from: string,
   to: string,
   repoPath?: string,
-): { status: number | null; stdout: string; stderr: string } | null {
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<{ status: number | null; stdout: string; stderr: string } | null> {
   if (!isSymbolSafe(from) || !isSymbolSafe(to)) return null;
 
   const args = ["trace", from, to];
   if (repoPath) args.push(repoPath);
 
   try {
-    const result = spawnSync("ast-bro", args, {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 60_000,
+    return await runAstBroAsync(args, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs ?? 60_000,
     });
-    return {
-      status: result.status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-    };
   } catch {
     return null;
   }
@@ -286,22 +433,17 @@ export function runAstBroTrace(
 /**
  * Run `ast-bro surface [PATH]`.
  */
-export function runAstBroSurface(
+export async function runAstBroSurface(
   dirPath: string,
-): { status: number | null; stdout: string; stderr: string } | null {
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<{ status: number | null; stdout: string; stderr: string } | null> {
   if (!isPathSafe(dirPath)) return null;
 
   try {
-    const result = spawnSync("ast-bro", ["surface", dirPath], {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 60_000,
+    return await runAstBroAsync(["surface", dirPath], {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs ?? 60_000,
     });
-    return {
-      status: result.status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-    };
   } catch {
     return null;
   }
@@ -309,6 +451,8 @@ export function runAstBroSurface(
 
 /**
  * Run `ast-bro digest [PATHS]...` with an optional repo path.
+ *
+ * Kept synchronous for the session-seed path.
  */
 export function runAstBroDigest(
   paths: string[],
@@ -443,10 +587,10 @@ export function getExtensionVersion(): string {
  *
  * Commands that take a query instead of a path use this helper.
  */
-export function runAstBroSearch(
+export async function runAstBroSearch(
   query: string,
-  options?: { topK?: number },
-): { status: number | null; stdout: string; stderr: string } | null {
+  options?: { topK?: number; signal?: AbortSignal; timeoutMs?: number },
+): Promise<{ status: number | null; stdout: string; stderr: string } | null> {
   if (typeof query !== "string" || query.length === 0) return null;
 
   const dangerous = /[;|&$`<>\u000D\u000A\u0000]/;
@@ -460,16 +604,10 @@ export function runAstBroSearch(
   args.push(query);
 
   try {
-    const result = spawnSync("ast-bro", args, {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 30_000,
+    return await runAstBroAsync(args, {
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs ?? 30_000,
     });
-    return {
-      status: result.status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-    };
   } catch {
     return null;
   }

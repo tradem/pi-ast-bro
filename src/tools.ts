@@ -1,13 +1,13 @@
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { formatBytesHuman, type StatsManager } from "./statsManager.js";
 import type { SettingsManager } from "./config.js";
 import {
   isAstBroAvailable,
   isPathSafe,
   resolveExistingFilePath,
-  runAstBro,
+  runAstBroAsync,
   runAstBroSearch,
 } from "./utils.js";
 
@@ -40,7 +40,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
     async execute(
       _toolCallId: string,
       params: { path: string },
-      _signal: AbortSignal | undefined,
+      signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
@@ -61,10 +61,18 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
         };
       }
 
-      const result = runAstBro("map", path);
+      const result = await runAstBroAsync(["map", path], { signal, timeoutMs: 30_000 });
       if (!result) {
         return {
           content: [{ type: "text", text: "Failed to run ast-bro map." }],
+          isError: true,
+          details: undefined,
+        };
+      }
+
+      if (signal?.aborted) {
+        return {
+          content: [{ type: "text", text: "ast-bro map aborted." }],
           isError: true,
           details: undefined,
         };
@@ -74,7 +82,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
         const resolved = resolveExistingFilePath(ctx.cwd, path);
         if (resolved) {
           try {
-            const original = readFileSync(resolved, "utf-8");
+            const original = await readFile(resolved, "utf-8");
             const output = result.stdout || "";
             stats.addReadSavings(
               resolved,
@@ -123,7 +131,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
     async execute(
       _toolCallId: string,
       params: { query: string; top_k?: number; mode?: "snippets" | "summary" },
-      _signal: AbortSignal | undefined,
+      signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
@@ -135,10 +143,18 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
         };
       }
 
-      const result = runAstBroSearch(params.query, { topK: params.top_k });
+      const result = await runAstBroSearch(params.query, { topK: params.top_k, signal });
       if (!result) {
         return {
           content: [{ type: "text", text: "Failed to run ast-bro search." }],
+          isError: true,
+          details: undefined,
+        };
+      }
+
+      if (signal?.aborted) {
+        return {
+          content: [{ type: "text", text: "ast-bro search aborted." }],
           isError: true,
           details: undefined,
         };
@@ -157,7 +173,7 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
             // Keep raw output if settings could not be loaded.
           }
         }
-        recordSearchSavings(output, ctx.cwd, stats, ctx);
+        await recordSearchSavings(output, ctx.cwd, stats, ctx);
       }
 
       if (result.status !== 0 || mode !== "summary") {
@@ -301,12 +317,12 @@ export function parseSearchSummary(stdout: string): SearchSummary | null {
  * already contains small excerpts, so this approximates how much raw source
  * was avoided.
  */
-function recordSearchSavings(
+async function recordSearchSavings(
   stdout: string,
   cwd: string,
   stats: StatsManager,
   ctx: ExtensionContext,
-): void {
+): Promise<void> {
   const lines = stdout.split("\n");
   const seenFiles = new Set<string>();
   let originalBytes = 0;
@@ -325,7 +341,8 @@ function recordSearchSavings(
 
     seenFiles.add(rawPath);
     try {
-      originalBytes += statSync(resolved).size;
+      const fileStat = await stat(resolved);
+      originalBytes += fileStat.size;
     } catch {
       // Ignore files that disappear between listing and stat.
     }

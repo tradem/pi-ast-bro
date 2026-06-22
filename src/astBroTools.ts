@@ -1,9 +1,8 @@
 import { Type, type Static } from "typebox";
-import { readFileSync, statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { spawnSync } from "node:child_process";
 import { formatBytesHuman, type StatsManager } from "./statsManager.js";
-import { isAstBroAvailable, isPathSafe, resolveExistingFilePath } from "./utils.js";
+import { isAstBroAvailable, isPathSafe, resolveExistingFilePath, runAstBroAsync } from "./utils.js";
 
 /**
  * TypeBox schemas for the two AST refactoring tools.
@@ -51,29 +50,16 @@ function isValidMatch(value: unknown): value is AstMatch {
 }
 
 /**
- * Extract 1-based line plus surrounding context from a resolved file.
+ * Extract 1-based line plus surrounding context from a loaded file content.
  */
-function extractSnippet(filePath: string, line: number): string | null {
-  try {
-    const content = readFileSync(filePath, "utf-8");
-    const lines = content.split("\n");
-    const index = line - 1;
-    if (index < 0 || index >= lines.length) return null;
+function extractSnippet(content: string, line: number): string | null {
+  const lines = content.split("\n");
+  const index = line - 1;
+  if (index < 0 || index >= lines.length) return null;
 
-    const start = Math.max(0, index - SNIPPET_CONTEXT_LINES);
-    const end = Math.min(lines.length, index + SNIPPET_CONTEXT_LINES + 1);
-    return lines.slice(start, end).join("\n");
-  } catch {
-    return null;
-  }
-}
-
-function getFileSizeBytes(filePath: string): number {
-  try {
-    return statSync(filePath).size;
-  } catch {
-    return 0;
-  }
+  const start = Math.max(0, index - SNIPPET_CONTEXT_LINES);
+  const end = Math.min(lines.length, index + SNIPPET_CONTEXT_LINES + 1);
+  return lines.slice(start, end).join("\n");
 }
 
 function parseJsonOutput(stdout: string): unknown | null {
@@ -89,20 +75,35 @@ interface SnippetMetrics {
   filesRead: number;
 }
 
-function injectSnippet(match: AstMatch, cwd: string, seenFiles: Set<string>): SnippetMetrics {
+async function injectSnippet(
+  match: AstMatch,
+  cwd: string,
+  seenFiles: Set<string>,
+  fileCache: Map<string, string>,
+): Promise<SnippetMetrics> {
   const rawPath = getMatchFile(match)!;
   const resolved = resolveExistingFilePath(cwd, rawPath);
 
   if (!resolved) return { originalBytes: 0, filesRead: 0 };
 
-  const snippet = extractSnippet(resolved, match.line);
+  let content = fileCache.get(resolved);
+  if (content === undefined) {
+    try {
+      content = await readFile(resolved, "utf-8");
+      fileCache.set(resolved, content);
+    } catch {
+      return { originalBytes: 0, filesRead: 0 };
+    }
+  }
+
+  const snippet = extractSnippet(content, match.line);
   if (!snippet) return { originalBytes: 0, filesRead: 0 };
 
   match.exact_snippet = snippet;
 
   if (seenFiles.has(resolved)) return { originalBytes: 0, filesRead: 0 };
   seenFiles.add(resolved);
-  return { originalBytes: getFileSizeBytes(resolved), filesRead: 1 };
+  return { originalBytes: Buffer.byteLength(content, "utf-8"), filesRead: 1 };
 }
 
 interface AugmentArrayResult {
@@ -120,8 +121,9 @@ interface AugmentResult {
   hadTruncation: boolean;
 }
 
-function augmentArray(items: unknown[], cwd: string): AugmentArrayResult {
+async function augmentArray(items: unknown[], cwd: string): Promise<AugmentArrayResult> {
   const seenFiles = new Set<string>();
+  const fileCache = new Map<string, string>();
   let originalBytes = 0;
   let filesRead = 0;
   let hadTruncation = false;
@@ -131,7 +133,7 @@ function augmentArray(items: unknown[], cwd: string): AugmentArrayResult {
     const item = items[i];
 
     if (isValidMatch(item)) {
-      const metrics = injectSnippet(item, cwd, seenFiles);
+      const metrics = await injectSnippet(item, cwd, seenFiles, fileCache);
       originalBytes += metrics.originalBytes;
       filesRead += metrics.filesRead;
       augmented.push(item as Record<string, unknown>);
@@ -139,7 +141,7 @@ function augmentArray(items: unknown[], cwd: string): AugmentArrayResult {
     }
 
     if (Array.isArray(item)) {
-      const nested = augmentArray(item, cwd);
+      const nested = await augmentArray(item, cwd);
       augmented.push(nested.results);
       originalBytes += nested.originalBytes;
       filesRead += nested.filesRead;
@@ -148,7 +150,7 @@ function augmentArray(items: unknown[], cwd: string): AugmentArrayResult {
     }
 
     if (typeof item === "object" && item !== null) {
-      const nested = augmentResult(item, cwd);
+      const nested = await augmentResult(item, cwd);
       augmented.push(nested.payload);
       originalBytes += nested.originalBytes;
       filesRead += nested.filesRead;
@@ -182,9 +184,9 @@ function augmentArray(items: unknown[], cwd: string): AugmentArrayResult {
  * Arrays are hard-limited to {@link MAX_RESULTS} entries. When an array is
  * truncated a sibling `*_attention_required` key is added.
  */
-function augmentResult(parsed: unknown, cwd: string): AugmentResult {
+async function augmentResult(parsed: unknown, cwd: string): Promise<AugmentResult> {
   if (Array.isArray(parsed)) {
-    const aug = augmentArray(parsed, cwd);
+    const aug = await augmentArray(parsed, cwd);
     const payload: Record<string, unknown> = { results: aug.results };
     if (aug.attention_required) payload.attention_required = aug.attention_required;
     return {
@@ -206,7 +208,7 @@ function augmentResult(parsed: unknown, cwd: string): AugmentResult {
 
   for (const [key, value] of Object.entries(parsed)) {
     if (Array.isArray(value)) {
-      const aug = augmentArray(value, cwd);
+      const aug = await augmentArray(value, cwd);
       result[key] = aug.results;
       originalBytes += aug.originalBytes;
       filesRead += aug.filesRead;
@@ -215,7 +217,7 @@ function augmentResult(parsed: unknown, cwd: string): AugmentResult {
         hadTruncation = true;
       }
     } else if (typeof value === "object" && value !== null) {
-      const nested = augmentResult(value, cwd);
+      const nested = await augmentResult(value, cwd);
       result[key] = nested.payload;
       originalBytes += nested.originalBytes;
       filesRead += nested.filesRead;
@@ -253,25 +255,17 @@ function buildImpactTarget(symbol: string, file?: string): string {
 /**
  * Run an `ast-bro` refactoring subcommand with JSON output enabled.
  */
-function runAstBroRefactor(
+async function runAstBroRefactor(
   subcommand: AstRefactorCommand,
   target: string,
-  searchPath?: string,
-): { status: number | null; stdout: string; stderr: string } | null {
+  searchPath: string | undefined,
+  signal?: AbortSignal,
+): Promise<{ status: number | null; stdout: string; stderr: string } | null> {
   const args = [subcommand, "--json", target];
   if (searchPath) args.push(searchPath);
 
   try {
-    const result = spawnSync("ast-bro", args, {
-      encoding: "utf-8",
-      stdio: "pipe",
-      timeout: 60_000,
-    });
-    return {
-      status: result.status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-    };
+    return await runAstBroAsync(args, { signal, timeoutMs: 60_000 });
   } catch {
     return null;
   }
@@ -283,6 +277,7 @@ export async function executeAstBroRefactorTool(
   file: string | undefined,
   ctx: ExtensionContext,
   stats?: StatsManager,
+  signal?: AbortSignal,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean; details: { exitCode: number | null } }> {
   if (!isAstBroAvailable()) {
     return {
@@ -317,10 +312,18 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  const result = runAstBroRefactor(subcommand, target, subcommand === "implements" ? file : undefined);
+  const result = await runAstBroRefactor(subcommand, target, subcommand === "implements" ? file : undefined, signal);
   if (!result) {
     return {
       content: [{ type: "text", text: `Failed to run ast-bro ${subcommand}.` }],
+      isError: true,
+      details: { exitCode: null },
+    };
+  }
+
+  if (signal?.aborted) {
+    return {
+      content: [{ type: "text", text: `ast-bro ${subcommand} aborted.` }],
       isError: true,
       details: { exitCode: null },
     };
@@ -351,7 +354,7 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  const augmented = augmentResult(parsed, ctx.cwd);
+  const augmented = await augmentResult(parsed, ctx.cwd);
   const outputText = JSON.stringify(augmented.payload, null, 2);
   const outputBytes = Buffer.byteLength(outputText, "utf-8");
   const savedBytes = Math.max(0, augmented.originalBytes - outputBytes);
@@ -388,8 +391,8 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
       "Do not use this tool for ambiguous symbols defined in the language standard library or built-in types (e.g. to_string/clone, ToString, str.upper); ast-bro may fail to resolve them. Use analyze_ast_search instead.",
     ],
     parameters: AnalyzeAstImpactSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      return executeAstBroRefactorTool("impact", params.symbol, params.file, ctx, stats);
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      return executeAstBroRefactorTool("impact", params.symbol, params.file, ctx, stats, signal);
     },
   });
 
@@ -404,8 +407,8 @@ export function registerRefactoringTools(pi: ExtensionAPI, stats: StatsManager):
       "Prefer it over bash/rg/grep for AST-accurate implementation discovery.",
     ],
     parameters: FindImplementationsSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      return executeAstBroRefactorTool("implements", params.symbol, params.file, ctx, stats);
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      return executeAstBroRefactorTool("implements", params.symbol, params.file, ctx, stats, signal);
     },
   });
 }

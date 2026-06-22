@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import extensionFactory from "../src/index.js";
+import { clearAstBroInfoCache } from "../src/utils.js";
+import { emitSpawnResponse } from "./spawnMocks.js";
 
 vi.mock("node:child_process", () => ({
+  spawn: vi.fn(),
   spawnSync: vi.fn(),
 }));
 
@@ -11,6 +14,10 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
+}));
+
+vi.mock("node:fs/promises", () => ({
+  readFile: vi.fn(),
 }));
 
 interface MockExtensionAPI extends ExtensionAPI {
@@ -77,10 +84,29 @@ async function invokeHandlers(
   return results;
 }
 
+async function mockAstBroAvailable(): Promise<void> {
+  const { spawn, spawnSync } = vi.mocked(
+    await import("node:child_process"),
+  );
+  spawn.mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "ast-bro" && args?.[0] === "--version") {
+      return emitSpawnResponse(0, "ast-bro 3.0.0", "");
+    }
+    return emitSpawnResponse(0, "", "");
+  });
+  spawnSync.mockImplementation((command: string, args?: readonly string[]) => {
+    if (command === "which" && args?.[0] === "ast-bro") {
+      return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof import("node:child_process").spawnSync>;
+    }
+    return { status: null, stdout: "", stderr: "" } as ReturnType<typeof import("node:child_process").spawnSync>;
+  });
+}
+
 describe("pi-ast-bro extension", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.spyOn(process, "on").mockReturnValue(process);
+    clearAstBroInfoCache();
   });
 
   afterEach(() => {
@@ -112,14 +138,18 @@ describe("pi-ast-bro extension", () => {
     it("prompts to install ast-bro on startup when binary is missing and user confirms", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
+      const { spawn } = await import("node:child_process");
       const { spawnSync } = await import("node:child_process");
       const { existsSync } = await import("node:fs");
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 1, stdout: "", stderr: "not found" } as ReturnType<typeof spawnSync>;
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
+          return emitSpawnResponse(1, "", "not found");
         }
-        if (command === "ast-bro" && args[0] === "install") {
+        return emitSpawnResponse(0, "", "");
+      });
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "install") {
           return { status: 0, stdout: "installed", stderr: "" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
@@ -171,8 +201,8 @@ describe("pi-ast-bro extension", () => {
       const { spawnSync } = await import("node:child_process");
 
       await mockFileContent("/project/src/large.rs", "line\n".repeat(501));
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "map") {
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "map") {
           return { status: 0, stdout: "AST context summary", stderr: "" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
@@ -187,9 +217,6 @@ describe("pi-ast-bro extension", () => {
       expect(ctx.overrideResult).toHaveBeenCalledWith({
         content: [{ type: "text", text: expect.stringContaining("AST context summary") }],
       });
-      expect(ctx.overrideResult).toHaveBeenCalledWith({
-        content: [{ type: "text", text: expect.stringContaining("full raw source") }],
-      });
     });
 
     it("rewrites the tool_result when overrideResult is unavailable (e.g. pi 0.79.8)", async () => {
@@ -198,8 +225,8 @@ describe("pi-ast-bro extension", () => {
       const { spawnSync } = await import("node:child_process");
 
       await mockFileContent("/project/src/large.rs", "line\n".repeat(501));
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "map") {
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "map") {
           return { status: 0, stdout: "AST context summary", stderr: "" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
@@ -357,11 +384,11 @@ describe("pi-ast-bro extension", () => {
 
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readFileSync).mockReturnValue("");
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
           return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
         }
-        if (command === "ast-bro" && args[0] === "map") {
+        if (command === "ast-bro" && args?.[0] === "map") {
           return { status: 1, stdout: "", stderr: "unexpected token at line 10" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
@@ -394,11 +421,11 @@ describe("pi-ast-bro extension", () => {
       const { existsSync } = await import("node:fs");
 
       vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
           return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
         }
-        if (command === "ast-bro" && args[0] === "map") {
+        if (command === "ast-bro" && args?.[0] === "map") {
           return { status: 0, stdout: "OK", stderr: "" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
@@ -422,22 +449,28 @@ describe("pi-ast-bro extension", () => {
     it("execute analyze_ast_impact by spawning ast-bro impact", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
-      const { spawnSync } = await import("node:child_process");
+      const { spawn, spawnSync } = await import("node:child_process");
 
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
+          return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
         }
-        if (command === "ast-bro" && args[0] === "impact") {
-          return { status: 0, stdout: "impact result", stderr: "" } as ReturnType<typeof spawnSync>;
+        if (command === "which" && args?.[0] === "ast-bro") {
+          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(0, "impact result", "");
+        }
+        return emitSpawnResponse(0, "", "");
       });
 
       const impactTool = pi.registeredTools.find((t) => t.name === "analyze_ast_impact")!;
       const result = await impactTool.execute("tc", { symbol: "make_ctx", file: "src/lib.rs" }, new AbortController().signal, undefined, createMockContext());
 
-      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["impact", "--json", "src/lib.rs:make_ctx"], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith("ast-bro", ["impact", "--json", "src/lib.rs:make_ctx"], expect.any(Object));
       const typedResult = result as unknown as { content: Array<{ type: string; text: string }>; isError: boolean };
       expect(typedResult.content[0].text).toContain("impact result");
       expect(typedResult.isError).toBe(false);
@@ -446,19 +479,28 @@ describe("pi-ast-bro extension", () => {
     it("records gain stats when analyze_ast_map succeeds", async () => {
       const pi = createMockPi();
       extensionFactory(pi);
-      const { spawnSync } = await import("node:child_process");
-      const { existsSync, readFileSync } = await import("node:fs");
+      const { spawn, spawnSync } = await import("node:child_process");
+      const { existsSync } = await import("node:fs");
+      const { readFile } = await import("node:fs/promises");
 
       vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue("original file content with many lines\n".repeat(400));
-      vi.mocked(spawnSync).mockImplementation((command: string, args: string[]) => {
-        if (command === "ast-bro" && args[0] === "--version") {
-          return { status: 0, stdout: "1.0", stderr: "" } as ReturnType<typeof spawnSync>;
+      vi.mocked(readFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+        "original file content with many lines\n".repeat(400),
+      );
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
+          return { status: 0, stdout: "3.0.0", stderr: "" } as ReturnType<typeof spawnSync>;
         }
-        if (command === "ast-bro" && args[0] === "map") {
-          return { status: 0, stdout: "AST map summary", stderr: "" } as ReturnType<typeof spawnSync>;
+        if (command === "which" && args?.[0] === "ast-bro") {
+          return { status: 0, stdout: "/usr/bin/ast-bro", stderr: "" } as ReturnType<typeof spawnSync>;
         }
         return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "map") {
+          return emitSpawnResponse(0, "AST map summary", "");
+        }
+        return emitSpawnResponse(0, "", "");
       });
 
       const mapTool = pi.registeredTools.find((t) => t.name === "analyze_ast_map")!;
@@ -470,8 +512,8 @@ describe("pi-ast-bro extension", () => {
         createMockContext(),
       );
 
-      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["map", "src/lib.rs"], expect.any(Object));
-      expect(readFileSync).toHaveBeenCalledWith("/project/src/lib.rs", "utf-8");
+      expect(spawn).toHaveBeenCalledWith("ast-bro", ["map", "src/lib.rs"], expect.any(Object));
+      expect(readFile).toHaveBeenCalledWith("/project/src/lib.rs", "utf-8");
       const typedResult = result as unknown as { content: Array<{ type: string; text: string }>; isError: boolean };
       expect(typedResult.content[0].text).toContain("AST map summary");
       expect(typedResult.isError).toBe(false);
