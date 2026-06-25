@@ -64,6 +64,8 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 > **Upgrade note (pi 0.80 + parser fix):** As of this release the supported Pi range is `^0.80.0`. A latent bug in the in-house semver-range checker was also fixed: the upper bound of `SUPPORTED_AST_BRO_RANGE` (`>=3.0.0 <3.2.0`) is now actually enforced. Previously `ast-bro 3.2.x`–`3.x` were silently tolerated and could load; they are now correctly rejected with an "installed ast-bro (...) is not supported ... Extension disabled." error and the extension disables itself. If you are on `ast-bro 3.2.x` or newer, downgrade to a `3.0.x`–`3.1.x` build or await a widened range.
 
+> **Release note (dev toolchain):** Dev toolchain lifted to TypeScript 6 + `@types/node` 26; no runtime impact. The loaded extension is compiled by jiti at runtime independently of the locally installed `typescript` package, so this bump affects only the typecheck/test gate.
+
 ### 1. Install `ast-bro`
 
 Follow the upstream instructions and make sure the binary is reachable, for example:

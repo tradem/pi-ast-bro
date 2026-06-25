@@ -34,6 +34,18 @@ export type FindImplementationsParams = Static<typeof FindImplementationsSchema>
 
 type AstRefactorCommand = "impact" | "implements";
 
+/**
+ * Structured details emitted by `executeAstBroRefactorTool`.
+ *
+ * `augmentation_error` is populated only by the catch-all internal-error
+ * branch, where the wrapping `augment` step failed and we surface the cause
+ * alongside a null `exitCode` for diagnostics/UI rendering.
+ */
+export interface AstBroToolDetails {
+  exitCode: number | null;
+  augmentation_error?: string;
+}
+
 const MAX_RESULTS = 50;
 const SNIPPET_CONTEXT_LINES = 2;
 
@@ -318,7 +330,7 @@ export async function executeAstBroRefactorTool(
   signal?: AbortSignal,
   onUpdate?: AgentToolUpdateCallback | undefined,
   settings?: SettingsManager,
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean; details: { exitCode: number | null } }> {
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean; details: AstBroToolDetails }> {
   if (!isAstBroAvailable()) {
     return {
       content: [{ type: "text", text: "ast-bro is not installed or not on PATH." }],
