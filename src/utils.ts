@@ -642,11 +642,30 @@ function getGitShortSha(): string | null {
 /**
  * Minimal semver-range checker.
  *
- * Supports `^`, `>=`, `>`, `<=`, `<`, `=` and exact ranges. Build metadata is
- * ignored. This avoids pulling in the full `semver` package for the few checks
- * performed by the extension.
+ * Supports `^`, `>=`, `>`, `<=`, `<`, `=` and exact ranges. Compound ranges
+ * (multiple comparators separated by whitespace, e.g. ">=3.0.0 <3.2.0") are
+ * evaluated with AND semantics: every comparator must be satisfied. Build
+ * metadata is ignored. This avoids pulling in the full `semver` package for the
+ * few checks performed by the extension.
  */
 export function satisfiesSemver(version: string, range: string): boolean {
+  // Defensive: empty / whitespace-only range is never satisfied.
+  const trimmed = range.trim();
+  if (trimmed === "") return false;
+  const tokens = trimmed.split(/\s+/);
+  return tokens.every((token) => satisfiesSingleComparator(version, token));
+}
+
+/**
+ * Evaluate a single comparator token (no whitespace) against the version.
+ *
+ * Token shapes: `^x.y.z`, `>=x.y.z`, `>x.y.z`, `<=x.y.z`, `<x.y.z`, `=x.y.z`,
+ * or bare `x.y.z` (treated as `=`). Returns `false` for malformed input rather
+ * than throwing.
+ */
+function satisfiesSingleComparator(version: string, token: string): boolean {
+  if (token === "") return false;
+
   const cleanVersion = version.replace(/\+.*/, "");
   const [vMajorStr, vMinorStr, vPatchStr = "0"] = cleanVersion.split(".");
   const vMajor = Number.parseInt(vMajorStr, 10);
@@ -656,8 +675,8 @@ export function satisfiesSemver(version: string, range: string): boolean {
 
   const numeric = (major: number, minor: number, patch: number) => major * 1_000_000 + minor * 1_000 + patch;
 
-  if (range.startsWith("^")) {
-    const base = range.slice(1);
+  if (token.startsWith("^")) {
+    const base = token.slice(1);
     const [rMajorStr, rMinorStr, rPatchStr = "0"] = base.split(".");
     const rMajor = Number.parseInt(rMajorStr, 10);
     const rMinor = Number.parseInt(rMinorStr, 10);
@@ -674,7 +693,7 @@ export function satisfiesSemver(version: string, range: string): boolean {
     return true;
   }
 
-  const opMatch = range.match(/^(>=|>|<=|<|=)?\s*(.+)$/);
+  const opMatch = token.match(/^(>=|>|<=|<|=)?\s*(.+)$/);
   if (!opMatch) return false;
   const op = opMatch[1] || "=";
   const base = opMatch[2];

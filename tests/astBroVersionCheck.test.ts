@@ -127,4 +127,29 @@ describe("ast-bro version compatibility check", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro detected", "info");
     expect(writeFileSync).not.toHaveBeenCalled();
   });
+
+  it("disables the extension when ast-bro version is above the upper bound (regression: previously tolerated)", async () => {
+    mockVersionCheck("3.5.0");
+
+    const pi = createMockPi();
+    extensionFactory(pi);
+
+    const ctx = createMockContext();
+    const [sessionHandler] = pi.handlers["session_start"]!;
+    await sessionHandler({}, ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("installed ast-bro (3.5.0) is not supported"),
+      "error",
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Expected >=3.0.0 <3.2.0"),
+      "error",
+    );
+    expect(writeFileSync).toHaveBeenCalled();
+    const writtenSettings = JSON.parse(
+      (vi.mocked(writeFileSync).mock.calls[0] as [string, string])[1],
+    ) as { enabled: boolean };
+    expect(writtenSettings.enabled).toBe(false);
+  });
 });

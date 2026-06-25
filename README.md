@@ -58,9 +58,11 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 ### Prerequisites
 
-- [Pi](https://pi.dev) coding agent
+- [Pi](https://pi.dev) coding agent (tested range: `^0.80.0`; newer `0.81+` versions trigger a non-fatal "outside the tested range" warning but keep running)
 - [Node.js](https://nodejs.org/) >= 22
 - [`ast-bro`](https://github.com/badlogic/ast-bro) binary (version **3.0.0 – 3.1.x**) available on your `PATH`
+
+> **Upgrade note (pi 0.80 + parser fix):** As of this release the supported Pi range is `^0.80.0`. A latent bug in the in-house semver-range checker was also fixed: the upper bound of `SUPPORTED_AST_BRO_RANGE` (`>=3.0.0 <3.2.0`) is now actually enforced. Previously `ast-bro 3.2.x`–`3.x` were silently tolerated and could load; they are now correctly rejected with an "installed ast-bro (...) is not supported ... Extension disabled." error and the extension disables itself. If you are on `ast-bro 3.2.x` or newer, downgrade to a `3.0.x`–`3.1.x` build or await a widened range.
 
 ### 1. Install `ast-bro`
 

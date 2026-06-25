@@ -5,13 +5,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { clearAstBroInfoCache } from "../src/utils.js";
 import { emitSpawnResponse } from "./spawnMocks.js";
 
-vi.mock("@earendil-works/pi-coding-agent", async () => {
-  const actual = await vi.importActual<typeof import("@earendil-works/pi-coding-agent")>(
-    "@earendil-works/pi-coding-agent",
-  );
-  return { ...actual, VERSION: "0.80.0" };
-});
-
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
   spawnSync: vi.fn(),
@@ -23,8 +16,6 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
 }));
-
-import extensionFactory from "../src/index.js";
 
 interface MockExtensionAPI extends ExtensionAPI {
   handlers: Record<string, Array<(event: unknown, ctx: unknown) => unknown | Promise<unknown>>>;
@@ -60,7 +51,7 @@ function createMockContext(): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
-function mockVersionCheck(version: string): void {
+function mockAstBroVersion(version: string): void {
   vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
     if (command === "ast-bro" && args?.[0] === "--version") {
       return emitSpawnResponse(0, version, "");
@@ -76,24 +67,43 @@ function mockVersionCheck(version: string): void {
   });
 }
 
+/**
+ * Load the extension under a mocked pi-coding-agent VERSION. Uses vi.doMock +
+ * dynamic import so each test can run against a different runtime version.
+ */
+async function loadExtensionWithPiVersion(piVersion: string): Promise<{
+  factory: (pi: ExtensionAPI) => void;
+}> {
+  vi.resetModules();
+  vi.doMock("@earendil-works/pi-coding-agent", async () => {
+    const actual = await vi.importActual<typeof import("@earendil-works/pi-coding-agent")>(
+      "@earendil-works/pi-coding-agent",
+    );
+    return { ...actual, VERSION: piVersion };
+  });
+  const mod = await import("../src/index.js");
+  return { factory: mod.default };
+}
+
 describe("pi version compatibility check", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearAstBroInfoCache();
   });
 
-  it("warns but keeps running when pi-coding-agent version is outside the tested range", async () => {
-    mockVersionCheck("3.0.0");
+  it("fires no 'outside tested range' warning when pi version is 0.80.2", async () => {
+    mockAstBroVersion("3.0.0");
 
+    const { factory } = await loadExtensionWithPiVersion("0.80.2");
     const pi = createMockPi();
-    extensionFactory(pi);
+    factory(pi);
 
     const ctx = createMockContext();
     const [sessionHandler] = pi.handlers["session_start"]!;
     await sessionHandler({}, ctx);
 
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("pi-coding-agent 0.80.0 is outside the tested range"),
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+      expect.stringContaining("outside the tested range"),
       "warning",
     );
     expect(ctx.ui.notify).toHaveBeenCalledWith(
@@ -101,5 +111,26 @@ describe("pi version compatibility check", () => {
       "info",
     );
     expect(writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("fires exactly one 'outside tested range' warning when pi version is 0.81.0", async () => {
+    mockAstBroVersion("3.0.0");
+
+    const { factory } = await loadExtensionWithPiVersion("0.81.0");
+    const pi = createMockPi();
+    factory(pi);
+
+    const ctx = createMockContext();
+    const [sessionHandler] = pi.handlers["session_start"]!;
+    await sessionHandler({}, ctx);
+
+    const warningCalls = vi.mocked(ctx.ui.notify).mock.calls.filter(([message, level]) =>
+      typeof message === "string" &&
+      message.includes("outside the tested range") &&
+      level === "warning",
+    );
+    expect(warningCalls).toHaveLength(1);
+    expect(warningCalls[0]![0]).toContain("0.81.0");
+    expect(warningCalls[0]![0]).toContain("^0.80.0");
   });
 });
