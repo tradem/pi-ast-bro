@@ -18,7 +18,7 @@ import { clearSessionSeed, getSessionSeed, isSessionSeedActive, setSessionSeed }
 import { registerAstCommand, registerAstGainCommand } from "./tui.js";
 import { registerRefactoringTools } from "./astBroTools.js";
 import { registerAstTools } from "./tools.js";
-import { clearAstBroInfoCache, getAstBroInfo, isAstBroAvailable, resolveRepoRoot, runAstBroDigestAsync, satisfiesSemver } from "./utils.js";
+import { clearAstBroInfoCache, getAstBroInfo, isAstBroAvailable, isInteractiveTui, resolveRepoRoot, runAstBroDigestAsync, satisfiesSemver } from "./utils.js";
 import { SUPPORTED_AST_BRO_RANGE, SUPPORTED_PI_RANGE } from "./constants.js";
 
 const SESSION_SEED_CUSTOM_TYPE = "ast-bro-session-seed";
@@ -193,13 +193,33 @@ function initializeExtension(pi: ExtensionAPI): void {
       return;
     }
 
-    if (!ctx.hasUI || ctx.mode !== "tui") {
+    if (!isInteractiveTui(ctx)) {
       ctx.ui.notify(
         "pi-ast-bro: ast-bro not found in PATH. Interceptors will remain disabled until it is installed.",
         "warning",
       );
       config.enabled = false;
       await settings.save(ctx.cwd, config);
+      return;
+    }
+
+    // Trust gate: `ast-bro install` is a privileged system operation (downloads
+    // and installs system software). It MUST NOT run in a project the user has
+    // not trusted. Guarded via `typeof ... === "function"` so the extension
+    // does not crash against older pi versions (before ~0.79.x) when the method
+    // is absent; in that case we fall back to the prior confirm->install flow.
+    if (typeof ctx.isProjectTrusted === "function" && !ctx.isProjectTrusted()) {
+      try {
+        ctx.ui.notify(
+          "pi-ast-bro: project not trusted; skipping ast-bro auto-install. Trust this project or install ast-bro manually.",
+          "warning",
+        );
+      } catch {
+        // notify may be unavailable in some pi versions; never crash here.
+      }
+      // Session-local skip: do NOT persist `config.enabled = false`. Trust is a
+      // dynamic property that may change session-live; a persistent disable
+      // would force the user to manually re-enable the extension after trusting.
       return;
     }
 

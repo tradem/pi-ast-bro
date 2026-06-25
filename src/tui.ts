@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import type { Settings, SettingsManager } from "./config.js";
 import { formatBytesHuman, formatTokens, relativePath, type StatsManager } from "./statsManager.js";
-import { getAstBroInfo, getExtensionVersion, satisfiesSemver } from "./utils.js";
+import { getAstBroInfo, getExtensionVersion, isInteractiveTui, satisfiesSemver } from "./utils.js";
 import { SUPPORTED_AST_BRO_RANGE } from "./constants.js";
 
 interface NumberPreset {
@@ -64,7 +64,7 @@ export function registerAstCommand(pi: ExtensionAPI, settings: SettingsManager, 
   pi.registerCommand("ast", {
     description: "Open the pi-ast-bro dashboard",
     handler: async (_args, ctx) => {
-      if (ctx.mode !== "tui" || !ctx.hasUI) {
+      if (!isInteractiveTui(ctx)) {
         ctx.ui.notify("The /ast dashboard requires interactive TUI mode.", "warning");
         return;
       }
@@ -281,7 +281,7 @@ export function registerAstGainCommand(pi: ExtensionAPI, manager: StatsManager):
   pi.registerCommand("ast-gain", {
     description: "Show persistent ast-bro gain statistics",
     handler: async (_args, ctx) => {
-      if (ctx.mode !== "tui" || !ctx.hasUI) {
+      if (!isInteractiveTui(ctx)) {
         ctx.ui.notify("The /ast-gain dashboard requires interactive TUI mode.", "warning");
         return;
       }

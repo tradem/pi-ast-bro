@@ -169,6 +169,129 @@ describe("pi-ast-bro extension", () => {
       expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro installed successfully", "info");
     });
 
+    it("skips the privileged install spawn when the project is untrusted (session-local)", async () => {
+      const pi = createMockPi();
+      extensionFactory(pi);
+      const { spawn } = await import("node:child_process");
+      const { spawnSync } = await import("node:child_process");
+      const { existsSync } = await import("node:fs");
+
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
+          return emitSpawnResponse(1, "", "not found");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "install") {
+          return { status: 0, stdout: "installed", stderr: "" } as ReturnType<typeof spawnSync>;
+        }
+        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(existsSync).mockReturnValue(true);
+
+      const ctx = createMockContext({
+        isProjectTrusted: () => false,
+        ui: { ...createMockContext().ui, confirm: vi.fn().mockResolvedValue(true) },
+      });
+      const [sessionHandler] = pi.handlers["session_start"]!;
+      await sessionHandler({}, ctx);
+
+      expect(ctx.ui.notify).toHaveBeenCalledWith(
+        "pi-ast-bro: project not trusted; skipping ast-bro auto-install. Trust this project or install ast-bro manually.",
+        "warning",
+      );
+      // The privileged spawn is withheld: no confirm prompt, no install spawn.
+      expect(ctx.ui.confirm).not.toHaveBeenCalled();
+      expect(spawnSync).not.toHaveBeenCalledWith("ast-bro", ["install"], expect.any(Object));
+      // Session-local skip: the trust refusal must not persist a hard disable.
+      // None of the disabling notifications should have been emitted.
+      expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+        "pi-ast-bro: ast-bro not found in PATH. Interceptors will remain disabled until it is installed.",
+        "warning",
+      );
+      expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+        "pi-ast-bro: user declined installation. Disabling extension.",
+        "info",
+      );
+    });
+
+    it("retains the existing confirm->install flow when the project is trusted", async () => {
+      const pi = createMockPi();
+      extensionFactory(pi);
+      const { spawn } = await import("node:child_process");
+      const { spawnSync } = await import("node:child_process");
+      const { existsSync } = await import("node:fs");
+
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
+          return emitSpawnResponse(1, "", "not found");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "install") {
+          return { status: 0, stdout: "installed", stderr: "" } as ReturnType<typeof spawnSync>;
+        }
+        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(existsSync).mockReturnValue(true);
+
+      const ctx = createMockContext({
+        isProjectTrusted: () => true,
+        ui: { ...createMockContext().ui, confirm: vi.fn().mockResolvedValue(true) },
+      });
+      const [sessionHandler] = pi.handlers["session_start"]!;
+      await sessionHandler({}, ctx);
+
+      expect(ctx.ui.confirm).toHaveBeenCalledWith(
+        "ast-bro not found",
+        "The ast-bro binary is not in PATH. Would you like to install it?",
+      );
+      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["install"], expect.any(Object));
+      expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro installed successfully", "info");
+    });
+
+    it("falls back to the existing confirm->install flow when isProjectTrusted is absent (older pi)", async () => {
+      const pi = createMockPi();
+      extensionFactory(pi);
+      const { spawn } = await import("node:child_process");
+      const { spawnSync } = await import("node:child_process");
+      const { existsSync } = await import("node:fs");
+
+      vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "--version") {
+          return emitSpawnResponse(1, "", "not found");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+      vi.mocked(spawnSync).mockImplementation((command: string, args?: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "install") {
+          return { status: 0, stdout: "installed", stderr: "" } as ReturnType<typeof spawnSync>;
+        }
+        return { status: null, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>;
+      });
+      vi.mocked(existsSync).mockReturnValue(true);
+
+      // Older pi runtime: isProjectTrusted is undefined on the context.
+      const ctx = createMockContext({
+        ui: { ...createMockContext().ui, confirm: vi.fn().mockResolvedValue(true) },
+      });
+      // Sanity check the precondition: no trust method is exposed.
+      expect(typeof (ctx as { isProjectTrusted?: unknown }).isProjectTrusted).not.toBe("function");
+      const [sessionHandler] = pi.handlers["session_start"]!;
+      await sessionHandler({}, ctx);
+
+      // No trust-refusal notification; the prior UI/mode-gated flow runs.
+      expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+        "pi-ast-bro: project not trusted; skipping ast-bro auto-install. Trust this project or install ast-bro manually.",
+        "warning",
+      );
+      expect(ctx.ui.confirm).toHaveBeenCalled();
+      expect(spawnSync).toHaveBeenCalledWith("ast-bro", ["install"], expect.any(Object));
+      expect(ctx.ui.notify).toHaveBeenCalledWith("pi-ast-bro: ast-bro installed successfully", "info");
+    });
+
     it("discovers both bundled skills via resources_discover", async () => {
       const pi = createMockPi();
       extensionFactory(pi);

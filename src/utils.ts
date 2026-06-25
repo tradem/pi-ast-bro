@@ -323,6 +323,21 @@ export function isSupportedExtension(filePath: string, supported: string[]): boo
 }
 
 /**
+ * Consolidated interactive-TUI mode gate.
+ *
+ * Returns `true` only when the context reports both a UI (`hasUI === true`)
+ * and the `"tui"` mode. Centralizes the previously scattered
+ * `ctx.mode !== "tui" || !ctx.hasUI` / `!ctx.hasUI || ctx.mode !== "tui"`
+ * inline checks so that future mode-aware logic (e.g. JSON/print/RPC-mode
+ * skips in logging paths) is maintainable in one place. Defensively tolerant
+ * of undefined fields (never throws) so it is safe to call with partial
+ * contexts in tests.
+ */
+export function isInteractiveTui(ctx: { mode?: string; hasUI?: boolean }): boolean {
+  return ctx.hasUI === true && ctx.mode === "tui";
+}
+
+/**
  * Resolve a possibly-relative file path against the cwd and verify it exists.
  *
  * Returns `null` if the file does not exist or the path is unsafe.
