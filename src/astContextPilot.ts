@@ -1,11 +1,14 @@
 import { Type, type Static } from "typebox";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SettingsManager } from "./config.js";
+import type { StatsManager } from "./statsManager.js";
 import {
   createProgressThrottle,
+  extractContextFilePaths,
   isAstBroAvailable,
   isPathSafe,
   progressPayload,
+  recordReferencedFileSavings,
   runAstBroAsync,
   type ProgressDetails,
 } from "./utils.js";
@@ -87,7 +90,11 @@ function errorResult(text: string): {
  * Register `analyze_ast_context`: token-budgeted focused context for a symbol
  * or file. Used before falling back to whole-file `read` calls.
  */
-export function registerAstContextTool(pi: ExtensionAPI, settings: SettingsManager): void {
+export function registerAstContextTool(
+  pi: ExtensionAPI,
+  settings: SettingsManager,
+  stats: StatsManager,
+): void {
   pi.registerTool({
     name: "analyze_ast_context",
     label: "AST Context",
@@ -137,6 +144,19 @@ export function registerAstContextTool(pi: ExtensionAPI, settings: SettingsManag
 
         if (signal?.aborted) {
           return errorResult("ast-bro context aborted.");
+        }
+
+        if (result.status === 0) {
+          try {
+            await recordReferencedFileSavings(
+              extractContextFilePaths(result.stdout ?? ""),
+              result.stdout ?? "",
+              ctx.cwd,
+              stats,
+            );
+          } catch {
+            // savings tracking is best-effort
+          }
         }
 
         return {

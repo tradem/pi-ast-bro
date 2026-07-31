@@ -4,6 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerNavigationTools } from "../src/astNavigationTools.js";
 import { SettingsManager } from "../src/config.js";
+import { StatsManager } from "../src/statsManager.js";
 import { clearAstBroInfoCache } from "../src/utils.js";
 import { emitSpawnResponse } from "./spawnMocks.js";
 
@@ -60,7 +61,7 @@ describe("navigation tools", () => {
   it("returns an error result when ast-bro is unavailable", async () => {
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerNavigationTools(pi, settings);
+    registerNavigationTools(pi, settings, new StatsManager(""));
 
     const { spawnSync } = await import("node:child_process");
     vi.mocked(spawnSync).mockReturnValue({
@@ -86,7 +87,7 @@ describe("navigation tools", () => {
     mockAstBroAvailable();
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerNavigationTools(pi, settings);
+    registerNavigationTools(pi, settings, new StatsManager(""));
 
     const traceTool = pi.registeredTools.find((t) => t.name === "analyze_ast_trace")!;
     const result = await traceTool.execute(
@@ -104,7 +105,7 @@ describe("navigation tools", () => {
     mockAstBroAvailable();
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerNavigationTools(pi, settings);
+    registerNavigationTools(pi, settings, new StatsManager(""));
 
     const { spawn } = await import("node:child_process");
     vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
@@ -132,7 +133,7 @@ describe("navigation tools", () => {
     mockAstBroAvailable();
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerNavigationTools(pi, settings);
+    registerNavigationTools(pi, settings, new StatsManager(""));
 
     const surfaceTool = pi.registeredTools.find((t) => t.name === "analyze_ast_surface")!;
     const result = await surfaceTool.execute(
@@ -150,7 +151,7 @@ describe("navigation tools", () => {
     mockAstBroAvailable();
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerNavigationTools(pi, settings);
+    registerNavigationTools(pi, settings, new StatsManager(""));
 
     const { spawn } = await import("node:child_process");
     vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {

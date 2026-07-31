@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "../src/config.js";
+import { StatsManager } from "../src/statsManager.js";
 import { clearAstBroInfoCache } from "../src/utils.js";
 import { registerAstGraphTool } from "../src/astGraphPilot.js";
 import { emitSpawnResponse } from "./spawnMocks.js";
@@ -108,7 +109,7 @@ describe("astGraphPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
 
     const result = await tool.execute(
@@ -143,7 +144,7 @@ describe("astGraphPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
 
     await tool.execute("tc", {}, undefined, undefined, createMockContext());
@@ -175,7 +176,7 @@ describe("astGraphPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
 
     const result = await tool.execute("tc", {}, undefined, undefined, createMockContext());
@@ -204,7 +205,7 @@ describe("astGraphPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
 
     const result = await tool.execute("tc", {}, undefined, undefined, createMockContext());
@@ -227,7 +228,7 @@ describe("astGraphPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
 
     const result = await tool.execute("tc", {}, undefined, undefined, createMockContext());
@@ -242,7 +243,7 @@ describe("astGraphPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
 
     const result = await tool.execute(

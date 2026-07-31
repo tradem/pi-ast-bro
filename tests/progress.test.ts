@@ -152,7 +152,7 @@ describe("tool progress phases", () => {
 
     const pi = createMockPi();
     const settings = createMockSettings();
-    registerAstContextTool(pi, settings);
+    registerAstContextTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
     const { payloads, onUpdate } = createMockOnUpdate();
 
@@ -172,7 +172,7 @@ describe("tool progress phases", () => {
 
     const pi = createMockPi();
     const settings = createMockSettings();
-    registerAstGraphTool(pi, settings);
+    registerAstGraphTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_graph");
     const { payloads, onUpdate } = createMockOnUpdate();
 
@@ -195,7 +195,7 @@ describe("tool progress phases", () => {
 
     const pi = createMockPi();
     const settings = createMockSettings();
-    registerNavigationTools(pi, settings);
+    registerNavigationTools(pi, settings, new StatsManager(""));
     const traceTool = getTool(pi, "analyze_ast_trace");
     const surfaceTool = getTool(pi, "analyze_ast_surface");
 
@@ -381,7 +381,7 @@ describe("tool progress phases", () => {
 
     const pi = createMockPi();
     const settings = createMockSettings();
-    registerAstContextTool(pi, settings);
+    registerAstContextTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());

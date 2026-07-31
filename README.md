@@ -16,7 +16,7 @@ A [Pi](https://pi.dev) extension that integrates the [`ast-bro`](https://github.
 | **`/ast-bro-architecture` skill** | Bundled skill with an AST-first decision tree and workflow. | Architecture, bounded-context, and aggregate questions. | — |
 | **`/ast-bro-refactor` skill** | Bundled skill enforcing the exact-snippet workflow. | Safe, whitespace-accurate refactoring. | — |
 | **Pre-flight syntax checks** | Runs `ast-bro map` after `edit`/`write` and marks syntax errors immediately. | Catching broken code before it propagates. | Toggle: `enablePreFlightSyntaxChecks` |
-| **Persistent gain tracking** | Tracks bytes saved, intercepts, and caught errors in `stats.json`. | Seeing the impact of AST-based shortcuts. | View with `/ast-gain` |
+| **Persistent gain tracking** | Tracks bytes saved, intercepts, and caught errors in `stats.json` — including the savings of all AST tools (`map`, `search`, `impact`, `implements`, `context`, `graph`, `trace`, `surface`). | Seeing the impact of AST-based shortcuts. | View with `/ast-gain` |
 | **Interactive dashboards** | `/ast` for live settings and stats; `/ast-gain` for lifetime high-scores. | Tuning behavior and reviewing savings. | — |
 
 ### Agent decision tree

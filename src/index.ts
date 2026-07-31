@@ -114,9 +114,9 @@ function initializeExtension(pi: ExtensionAPI): void {
   // are available regardless of whether the binary is installed.
   registerRefactoringTools(pi, stats, settings);
   registerAstTools(pi, stats, settings);
-  registerAstContextTool(pi, settings);
-  registerAstGraphTool(pi, settings);
-  registerNavigationTools(pi, settings);
+  registerAstContextTool(pi, settings, stats);
+  registerAstGraphTool(pi, settings, stats);
+  registerNavigationTools(pi, settings, stats);
   registerAstCommand(pi, settings, stats);
 
   const extensionDir = dirname(fileURLToPath(import.meta.url));

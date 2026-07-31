@@ -65,3 +65,23 @@ The system SHALL persist a `trackingSince` ISO timestamp in `stats.json` marking
 - **WHEN** `stats.json` already contains `trackingSince`
 - **THEN** `getLifetimeSummary()` and every subsequent write preserve the value unchanged
 
+### Requirement: Track savings of all context-saving AST tools
+The system SHALL record token/byte savings for every context-saving feature, not only the read/squeeze interceptors. `analyze_ast_context`, `analyze_ast_graph`, `analyze_ast_trace`, and `analyze_ast_surface` SHALL estimate the raw source volume their output replaces and report it via `stats.addReadSavings`.
+
+#### Scenario: analyze_ast_context records savings from referenced files
+- **WHEN** `analyze_ast_context` succeeds and the JSON report lists `report.entries[].file` paths
+- **THEN** the extension sums the sizes of the referenced files (via `stat`), compares them to the emitted output size, and records the positive difference with `addReadSavings`
+- **AND** the recording is best-effort: unresolvable files, stat errors, and non-JSON output are skipped without affecting the tool result
+
+#### Scenario: analyze_ast_graph records savings from graph edges
+- **WHEN** `analyze_ast_graph` succeeds and the JSON output contains `edges[].from`/`edges[].to`
+- **THEN** the extension sums the deduplicated referenced file sizes and records the positive difference against the (possibly edge-truncated) output
+
+#### Scenario: analyze_ast_trace and analyze_ast_surface record savings from output paths
+- **WHEN** `analyze_ast_trace` succeeds with numbered `path:line` entries or `analyze_ast_surface` succeeds with `symbol  path:line` lines
+- **THEN** the extension sums the deduplicated referenced file sizes and records the positive difference against the emitted output
+
+#### Scenario: Failed tool runs never record savings
+- **WHEN** a tool exits non-zero, is aborted, or references no existing files
+- **THEN** no savings are recorded and the tool result is unchanged
+

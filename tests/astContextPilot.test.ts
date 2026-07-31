@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "../src/config.js";
+import { StatsManager } from "../src/statsManager.js";
 import { clearAstBroInfoCache } from "../src/utils.js";
 import { registerAstContextTool } from "../src/astContextPilot.js";
 import { emitSpawnResponse } from "./spawnMocks.js";
@@ -110,7 +111,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute(
@@ -143,7 +144,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
@@ -168,7 +169,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
@@ -183,7 +184,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute(
@@ -205,7 +206,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute(
@@ -231,7 +232,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
@@ -260,7 +261,7 @@ describe("astContextPilot", () => {
 
     const pi = createMockPi();
     const settings = new SettingsManager();
-    registerAstContextTool(pi as never, settings);
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute(

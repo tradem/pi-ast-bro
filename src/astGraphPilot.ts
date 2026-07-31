@@ -2,11 +2,14 @@ import { resolve } from "node:path";
 import { Type, type Static } from "typebox";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SettingsManager } from "./config.js";
+import type { StatsManager } from "./statsManager.js";
 import {
   createProgressThrottle,
+  extractGraphFilePaths,
   isAstBroAvailable,
   isPathSafe,
   progressPayload,
+  recordReferencedFileSavings,
   runAstBroAsync,
   type ProgressDetails,
 } from "./utils.js";
@@ -103,7 +106,11 @@ function errorResult(text: string): {
  * Register `analyze_ast_graph`: compact file/module dependency graph for
  * architecture and coupling questions.
  */
-export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager): void {
+export function registerAstGraphTool(
+  pi: ExtensionAPI,
+  settings: SettingsManager,
+  stats: StatsManager,
+): void {
   pi.registerTool({
     name: "analyze_ast_graph",
     label: "AST Graph",
@@ -163,6 +170,19 @@ export function registerAstGraphTool(pi: ExtensionAPI, settings: SettingsManager
         }
 
         const formatted = truncateGraph(result.stdout, config.graphMaxEdges);
+
+        if (result.status === 0) {
+          try {
+            await recordReferencedFileSavings(
+              extractGraphFilePaths(result.stdout ?? ""),
+              formatted.text,
+              ctx.cwd,
+              stats,
+            );
+          } catch {
+            // savings tracking is best-effort
+          }
+        }
 
         return {
           content: [{ type: "text", text: formatted.text }],

@@ -2,11 +2,15 @@ import { Type, type Static } from "typebox";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { resolve } from "node:path";
 import type { SettingsManager } from "./config.js";
+import type { StatsManager } from "./statsManager.js";
 import {
   createProgressThrottle,
+  extractSurfaceFilePaths,
+  extractTraceFilePaths,
   isAstBroAvailable,
   isPathSafe,
   progressPayload,
+  recordReferencedFileSavings,
   runAstBroSurface,
   runAstBroTrace,
   type ProgressDetails,
@@ -73,7 +77,11 @@ function trimToBudget(stdout: string, budgetTokens: number): string {
  * `show`, `deps`, `reverse-deps`, `run`) are intentionally not registered;
  * their rationale is documented in `README.md` and `docs/architecture.md`.
  */
-export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsManager): void {
+export function registerNavigationTools(
+  pi: ExtensionAPI,
+  settings: SettingsManager,
+  stats: StatsManager,
+): void {
   pi.registerTool({
     name: "analyze_ast_trace",
     label: "AST Trace",
@@ -128,6 +136,19 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
         }
 
         const output = trimToBudget(result.stdout || result.stderr, config.contextDefaultBudget);
+
+        if (result.status === 0) {
+          try {
+            await recordReferencedFileSavings(
+              extractTraceFilePaths(result.stdout ?? ""),
+              output,
+              ctx.cwd,
+              stats,
+            );
+          } catch {
+            // savings tracking is best-effort
+          }
+        }
 
         return {
           content: [{ type: "text", text: output }],
@@ -184,6 +205,19 @@ export function registerNavigationTools(pi: ExtensionAPI, settings: SettingsMana
 
         if (signal?.aborted) {
           return errorResult("ast-bro surface aborted.");
+        }
+
+        if (result.status === 0) {
+          try {
+            await recordReferencedFileSavings(
+              extractSurfaceFilePaths(result.stdout ?? ""),
+              result.stdout ?? "",
+              ctx.cwd,
+              stats,
+            );
+          } catch {
+            // savings tracking is best-effort
+          }
         }
 
         return {

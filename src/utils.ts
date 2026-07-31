@@ -1,8 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
+import type { StatsManager } from "./statsManager.js";
 
 export interface AstBroInfo {
   available: boolean;
@@ -348,6 +350,141 @@ export function resolveExistingFilePath(cwd: string, filePath: string): string |
   const resolved = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
   if (!existsSync(resolved)) return null;
   return resolved;
+}
+
+/**
+ * File paths referenced by `ast-bro graph --json` output (`edges[].from/.to`).
+ * Returns an empty array for non-JSON or unrecognised output.
+ */
+export function extractGraphFilePaths(stdout: string): string[] {
+  const paths = new Set<string>();
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    const edges = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { edges?: unknown } | null)?.edges;
+    if (Array.isArray(edges)) {
+      for (const edge of edges) {
+        if (typeof edge !== "object" || edge === null) continue;
+        const record = edge as Record<string, unknown>;
+        if (typeof record.from === "string" && record.from) paths.add(record.from);
+        if (typeof record.to === "string" && record.to) paths.add(record.to);
+      }
+    }
+  } catch {
+    // non-JSON output carries no file paths
+  }
+  return [...paths];
+}
+
+/**
+ * File paths referenced by `ast-bro context --json` output
+ * (`report.entries[].file`). Returns an empty array for non-JSON output.
+ */
+export function extractContextFilePaths(stdout: string): string[] {
+  const paths = new Set<string>();
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    if (typeof parsed !== "object" || parsed === null) return [];
+    const report = (parsed as { report?: unknown }).report;
+    if (typeof report !== "object" || report === null) return [];
+    const entries = (report as { entries?: unknown }).entries;
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        if (typeof entry !== "object" || entry === null) continue;
+        const file = (entry as { file?: unknown }).file;
+        if (typeof file === "string" && file) paths.add(file);
+      }
+    }
+  } catch {
+    // non-JSON output carries no file paths
+  }
+  return [...paths];
+}
+
+/**
+ * Match `ast-bro trace` numbered entries:
+ * `1. src/a.rs::a_fn  src/a.rs:1  [function]`
+ */
+const TRACE_ENTRY_RE = /^\s*\d+\.\s+\S+\s+(\S+):\d+\b/gm;
+
+/**
+ * File paths referenced by `ast-bro trace` text output. Comment lines
+ * (`# trace: …`) and `↓ call` arrows are ignored.
+ */
+export function extractTraceFilePaths(stdout: string): string[] {
+  const paths = new Set<string>();
+  for (const match of stdout.matchAll(TRACE_ENTRY_RE)) {
+    const path = match[1];
+    if (path) paths.add(path);
+  }
+  return [...paths];
+}
+
+/**
+ * Match `ast-bro surface` lines: `a_fn  src/a.rs:1` (relative or absolute).
+ */
+const SURFACE_PATH_RE = /(\S+):\d+$/gm;
+
+/** File paths referenced by `ast-bro surface` text output. */
+export function extractSurfaceFilePaths(stdout: string): string[] {
+  const paths = new Set<string>();
+  for (const match of stdout.matchAll(SURFACE_PATH_RE)) {
+    const path = match[1];
+    if (path) paths.add(path);
+  }
+  return [...paths];
+}
+
+export interface RecordReferencedFileSavingsOptions {
+  /** Called after each referenced file is sized (for progress reporting). */
+  onProgress?: (current: number, total: number) => void;
+  /** Bail out early when the signal is aborted. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Record context-token savings for an ast-bro tool whose output references
+ * source files: sum the sizes of the referenced files (the raw source the
+ * agent would otherwise have read) against the emitted output size, then
+ * report the difference via `stats.addReadSavings`.
+ *
+ * Best-effort: unresolvable files and stat errors are skipped, nothing is
+ * recorded when there is no net saving, and the caller's signal aborts the
+ * walk early. Mirrors the search-savings estimation in tools.ts.
+ */
+export async function recordReferencedFileSavings(
+  paths: readonly string[],
+  stdout: string,
+  cwd: string,
+  stats: StatsManager,
+  options?: RecordReferencedFileSavingsOptions,
+): Promise<void> {
+  if (paths.length === 0) return;
+
+  let originalBytes = 0;
+  let filesRead = 0;
+  const total = paths.length;
+
+  for (let i = 0; i < total; i++) {
+    if (options?.signal?.aborted) return;
+    const resolved = resolveExistingFilePath(cwd, paths[i]);
+    if (!resolved) continue;
+    try {
+      const fileStat = await stat(resolved);
+      originalBytes += fileStat.size;
+      filesRead += 1;
+    } catch {
+      // skip unreadable files
+    }
+    options?.onProgress?.(i + 1, total);
+  }
+
+  const outputBytes = Buffer.byteLength(stdout, "utf-8");
+  const savedBytes = Math.max(0, originalBytes - outputBytes);
+  if (savedBytes > 0 && filesRead > 0 && paths[0]) {
+    stats.addReadSavings(paths[0], originalBytes, outputBytes);
+  }
 }
 
 /**
