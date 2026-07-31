@@ -2,7 +2,7 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import type { Settings, SettingsManager } from "./config.js";
-import { formatBytesHuman, formatTokens, relativePath, type StatsManager } from "./statsManager.js";
+import { formatBytesHuman, formatDate, formatTokens, relativePath, type StatsManager } from "./statsManager.js";
 import { getAstBroInfo, getExtensionVersion, isInteractiveTui, satisfiesSemver } from "./utils.js";
 import { SUPPORTED_AST_BRO_RANGE } from "./constants.js";
 
@@ -34,6 +34,13 @@ const SEARCH_SNIPPET_BUDGET_PRESETS: NumberPreset[] = [
   { value: 16000, label: "16000 — deep search" },
   { value: 32000, label: "32000 — exhaustive search" },
 ];
+
+/**
+ * How many of the most recent history entries the `/ast-gain` highscore view
+ * renders. The persisted history is bounded at 100; the dashboard only needs
+ * a short "recent actions" tail.
+ */
+const RECENT_ACTIVITY_LIMIT = 20;
 
 function parsePresetLabel(label: string): number {
   const match = label.match(/^(\d+)/);
@@ -304,9 +311,14 @@ export function registerAstGainCommand(pi: ExtensionAPI, manager: StatsManager):
               ? ((summary.totalSessionSeedSavings - summary.totalSessionSeedCost) / summary.totalSessionSeedCost * 100).toFixed(0)
               : "0";
 
+            const periodStart = formatDate(summary.trackingSince ?? new Date().toISOString());
+            const lastEntry = summary.history.length > 0 ? summary.history[summary.history.length - 1] : undefined;
+            const periodEnd = lastEntry ? formatDate(lastEntry.timestamp) : formatDate(new Date().toISOString());
+
             const lines = [
               theme.fg("accent", "AST-BRO GAIN HIGHSCORES"),
               "",
+              `  Score period:        ${periodStart} – ${periodEnd}`,
               `  Lifetime Savings:     ~${tokensSaved} Tokens  (${bytesSavedFormatted})`,
               `  Intercepts:           ${summary.totalReadsIntercepted} large files skipped`,
               `  Log/text squeeze:     ~${squeezeTokensSaved} Tokens  (${squeezeBytesSavedFormatted})`,
@@ -315,14 +327,14 @@ export function registerAstGainCommand(pi: ExtensionAPI, manager: StatsManager):
               `  Session seed savings: ${seedSavingsFormatted}`,
               `  Session seed ROI:     ${seedRoi}%`,
               "",
-              "  Recent Activity (Last 100 actions):",
+              `  Recent Activity (Last ${Math.min(summary.history.length, RECENT_ACTIVITY_LIMIT)} actions):`,
               "",
             ];
 
             if (summary.history.length === 0) {
               lines.push("  No recent activity.");
             } else {
-              for (const entry of summary.history.slice().reverse()) {
+              for (const entry of summary.history.slice(-RECENT_ACTIVITY_LIMIT).reverse()) {
                 const time = entry.timestamp.slice(11, 19);
                 const rel = relativePath(ctx.cwd, entry.path);
                 if (entry.type === "read") {

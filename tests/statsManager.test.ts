@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { StatsManager, formatTokens, relativePath } from "../src/statsManager.js";
+import { StatsManager, formatTokens, formatDate, relativePath } from "../src/statsManager.js";
 
 vi.mock("node:fs");
 
@@ -142,6 +142,59 @@ describe("StatsManager", () => {
   });
 
   describe("migration-safe schema", () => {
+    it("backfills trackingSince from the oldest history entry when missing", async () => {
+      useFiles({
+        [STATS_PATH]: JSON.stringify({
+          totalBytesSaved: 100,
+          history: [
+            { timestamp: "2026-01-01T10:00:00.000Z", type: "read", path: "old.ts", bytesSaved: 50 },
+            { timestamp: "2026-07-29T10:00:00.000Z", type: "read", path: "new.ts", bytesSaved: 50 },
+          ],
+        }),
+      });
+      const manager = new StatsManager("/project", { saveDelayMs: 10_000 });
+
+      const summary = await manager.getLifetimeSummary();
+      expect(summary.trackingSince).toBe("2026-01-01T10:00:00.000Z");
+
+      manager.addReadSavings("/project/src/large.ts", 1000, 100);
+      await manager.flush();
+      const written = lastWritten(STATS_PATH) as { trackingSince?: string };
+      expect(written.trackingSince).toBe("2026-01-01T10:00:00.000Z");
+    });
+
+    it("stamps trackingSince with the current time when there is no history", async () => {
+      useFiles({});
+      const manager = new StatsManager("/project", { saveDelayMs: 10_000 });
+
+      const summary = await manager.getLifetimeSummary();
+      expect(summary.trackingSince).toBeDefined();
+
+      manager.addReadSavings("/project/src/large.ts", 1000, 100);
+      await manager.flush();
+      const written = lastWritten(STATS_PATH) as { trackingSince?: string };
+      expect(typeof written.trackingSince).toBe("string");
+    });
+
+    it("preserves an existing trackingSince and carries it through mergeDeltas", async () => {
+      useFiles({
+        [STATS_PATH]: JSON.stringify({
+          trackingSince: "2025-12-01T00:00:00.000Z",
+          totalBytesSaved: 100,
+          history: [{ timestamp: "2026-07-29T10:00:00.000Z", type: "read", path: "a.ts", bytesSaved: 10 }],
+        }),
+      });
+      const manager = new StatsManager("/project", { saveDelayMs: 10_000 });
+      manager.addReadSavings("/project/src/large.ts", 1000, 100);
+
+      const summary = await manager.getLifetimeSummary();
+      expect(summary.trackingSince).toBe("2025-12-01T00:00:00.000Z");
+
+      await manager.flush();
+      const written = lastWritten(STATS_PATH) as { trackingSince?: string };
+      expect(written.trackingSince).toBe("2025-12-01T00:00:00.000Z");
+    });
+
     it("loads pre-existing stats.json without the new squeeze/seed fields", async () => {
       useFiles({
         [STATS_PATH]: JSON.stringify({
@@ -270,6 +323,11 @@ describe("StatsManager", () => {
       expect(formatTokens(0)).toBe("0");
       expect(formatTokens(4_000)).toBe("1.0k");
       expect(formatTokens(4_000_000)).toBe("1.0M");
+    });
+
+    it("formats an ISO timestamp as YYYY-MM-DD", () => {
+      expect(formatDate("2026-07-29T10:00:00.000Z")).toBe("2026-07-29");
+      expect(formatDate("2026-01-01T00:00:00Z")).toBe("2026-01-01");
     });
 
     it("produces a relative path when cwd is a parent", () => {

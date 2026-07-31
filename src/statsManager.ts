@@ -23,6 +23,12 @@ export const StatsHistoryEntrySchema = Type.Object(
  */
 export const StatsSchema = Type.Object(
   {
+    /**
+     * ISO timestamp marking the start of the tracked period. Optional for
+     * migration safety: older stats files lack it and are backfilled from
+     * the oldest history entry (or the current time) on load.
+     */
+    trackingSince: Type.Optional(Type.String()),
     totalBytesSaved: Type.Number({ default: 0, minimum: 0 }),
     totalReadsIntercepted: Type.Number({ default: 0, minimum: 0 }),
     totalPreFlightErrorsCaught: Type.Number({ default: 0, minimum: 0 }),
@@ -208,12 +214,12 @@ export class StatsManager {
   private loadStats(): Stats {
     let data: Stats = Value.Create(StatsSchema);
     const path = this.statsPath();
-    if (!existsSync(path)) return data;
+    if (!existsSync(path)) return this.ensureTrackingSince(data);
 
     try {
       const raw = readFileSync(path, "utf-8");
       const parsed: unknown = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || hasForbiddenKeys(parsed)) return data;
+      if (!parsed || typeof parsed !== "object" || hasForbiddenKeys(parsed)) return this.ensureTrackingSince(data);
 
       const defaulted = Value.Default(StatsSchema, parsed);
       if (Value.Check(StatsSchema, defaulted)) {
@@ -223,11 +229,23 @@ export class StatsManager {
       // Keep defaults on any parse or validation error.
     }
 
+    return this.ensureTrackingSince(data);
+  }
+
+  /**
+   * Migration-safe backfill for `trackingSince`: prefer the oldest recorded
+   * history entry (history is appended chronologically), otherwise stamp the
+   * current time. Once set, the value is persisted with the next write.
+   */
+  private ensureTrackingSince(data: Stats): Stats {
+    if (data.trackingSince) return data;
+    data.trackingSince = data.history[0]?.timestamp ?? new Date().toISOString();
     return data;
   }
 
   private mergeDeltas(data: Stats): Stats {
     return {
+      trackingSince: data.trackingSince,
       totalBytesSaved: data.totalBytesSaved + this.deltaBytesSaved,
       totalReadsIntercepted: data.totalReadsIntercepted + this.deltaReadsIntercepted,
       totalPreFlightErrorsCaught: data.totalPreFlightErrorsCaught + this.deltaPreFlightErrorsCaught,
@@ -285,4 +303,11 @@ export function relativePath(cwd: string, filePath: string): string {
   } catch {
     return filePath;
   }
+}
+
+/**
+ * Format an ISO timestamp as `YYYY-MM-DD` (UTC) for the score-period display.
+ */
+export function formatDate(iso: string): string {
+  return iso.slice(0, 10);
 }

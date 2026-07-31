@@ -114,7 +114,7 @@ Start Pi and run:
 
 You should see the dashboard showing `ast-bro status: available`, runtime stats, and toggles for the interceptors and threshold.
 
-Run `/ast-gain` to see persistent lifetime stats (tokens saved, intercepts, caught errors, and recent activity).
+Run `/ast-gain` to see persistent lifetime stats (tokens saved, intercepts, caught errors), the tracked score period, and the 20 most recent actions.
 
 ## Usage
 

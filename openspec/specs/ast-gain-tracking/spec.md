@@ -22,7 +22,16 @@ The system SHALL provide an interactive `/ast-gain` CLI/TUI command that formats
 
 #### Scenario: Invoking /ast-gain
 - **WHEN** a user enters `/ast-gain`
-- **THEN** an ASCII retro-highscore style dashboard displays the total tokens saved, total intercepted errors, and the most recent events from the history array.
+- **THEN** an ASCII retro-highscore style dashboard displays the total tokens saved, total intercepted errors, and the most recent events from the history array
+
+#### Scenario: Dashboard shows the tracked score period
+- **WHEN** the highscore view renders and `trackingSince` is set on the persisted stats (backfilled from the oldest history entry or the current time when absent)
+- **THEN** the dashboard displays a `Score period` line formatted as `YYYY-MM-DD – YYYY-MM-DD` (start = `trackingSince`, end = the most recent history entry, or the current date when there is no history)
+
+#### Scenario: Dashboard renders only the recent history tail
+- **WHEN** the history array holds more than `RECENT_ACTIVITY_LIMIT` (20) entries
+- **THEN** the dashboard renders only the last 20 entries, newest first
+- **AND** the "Recent Activity" label reports the actual number of rendered actions.
 
 ## ADDED Requirements
 
@@ -43,4 +52,16 @@ The system SHALL record the session-seed injection cost and the savings later at
 #### Scenario: Viewing seed ROI
 - **WHEN** a seeded session has injected a digest and later avoided reads
 - **THEN** `/ast-gain` displays the seed's injection cost, attributed savings, and the resulting net ROI
+
+### Requirement: Track the score period start
+The system SHALL persist a `trackingSince` ISO timestamp in `stats.json` marking the start of the period the lifetime highscore counters refer to.
+
+#### Scenario: Backfilling trackingSince on migration
+- **WHEN** `stats.json` predates the `trackingSince` field
+- **THEN** the stats manager loads it without error and backfills `trackingSince` from the oldest history entry (or the current time when the history is empty)
+- **AND** the backfilled value is persisted with the next write
+
+#### Scenario: Preserving trackingSince across merges and writes
+- **WHEN** `stats.json` already contains `trackingSince`
+- **THEN** `getLifetimeSummary()` and every subsequent write preserve the value unchanged
 
