@@ -9,7 +9,9 @@ A [Pi](https://pi.dev) extension that integrates the [`ast-bro`](https://github.
 | **Read interception** | Replaces large file reads with an `ast-bro map` outline when no `limit`/`offset` is given. | Skipping token-heavy whole-file reads. | Triggered by `read`; threshold: `fileSizeThresholdLines` (default 500). |
 | **`analyze_ast_graph`** | Returns a compact file/module dependency graph. | Architecture, coupling, and module-relationship questions. | `path` (optional, defaults to cwd); capped by `graphMaxEdges` (default 500). |
 | **`analyze_ast_map`** | Extracts a hierarchical AST block of a symbol or file. | Understanding the structure of a file or symbol. | `path` |
-| **`analyze_ast_context`** | Returns token-budgeted focused context for a symbol or file. | "How does this symbol/file work?" before falling back to `read`. | `path` (required), `target` (optional), `budget` (optional; default from `contextDefaultBudget`, 4000). |
+| **`analyze_ast_context`** | Returns token-budgeted focused context for a symbol or file. Without a `target`, a single-file `path` returns a structural map of that file. | "How does this symbol/file work?" before falling back to `read`. | `path` (required), `target` (optional), `budget` (optional; default from `contextDefaultBudget`, 4000). |
+| **`analyze_ast_trace`** | Traces the shortest static call path between two symbols, with inlined source bodies. | "How does X reach Y?" call-path questions. | `from`, `to`, `path` (optional repo root). |
+| **`analyze_ast_surface`** | Returns the actually-published API surface of a crate/package, resolving `pub use`/`__all__` re-exports. | Public-API and module-boundary questions. | `path` (crate root or directory). |
 | **`analyze_ast_search`** | Hybrid BM25 + semantic search. | Finding symbols, patterns, or call sites. | `query`, `top_k` (1–100), `mode` (`"snippets"` or `"summary"`). |
 | **`analyze_ast_impact`** | Cross-file caller/callee/impact analysis with exact source snippets. | Refactoring: finding who calls a symbol. | `symbol`, `file` (optional) |
 | **`find_implementations`** | Finds trait/interface/base-class implementations. | Refactoring: discovering implementers. | `symbol`, `file` (optional) |
@@ -29,6 +31,8 @@ The extension embeds an AST-first decision tree in tool metadata and the `/ast-b
 | Where is a symbol used? | `analyze_ast_impact` | `analyze_ast_search` (use `mode: summary` for many hits) | Targeted `read` |
 | Trait / interface implementations | `find_implementations` | `analyze_ast_context` on results | Targeted `read` |
 | How does a symbol/file work? | `analyze_ast_context` | `analyze_ast_search` (summary mode) | Targeted `read` |
+| How does one symbol reach another? | `analyze_ast_trace` | `analyze_ast_map` on the files in the path | Targeted `read` |
+| What is the public API of a module/crate? | `analyze_ast_surface` | `analyze_ast_context` on results | Targeted `read` |
 | Locate a pattern or name | `analyze_ast_search` | `analyze_ast_context` or `read` with `offset`/`limit` | — |
 
 > **Reflection rule:** Before calling `read` on more than two files for a structural question, prefer `analyze_ast_graph`, `analyze_ast_map`, or `analyze_ast_search` first.
@@ -60,7 +64,7 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 - [Pi](https://pi.dev) coding agent (tested range: `^0.83.0`; newer versions trigger a non-fatal "outside the tested range" warning but keep running)
 - [Node.js](https://nodejs.org/) >= 22
-- [`ast-bro`](https://github.com/badlogic/ast-bro) binary (version **3.0.0 – 3.1.x**) available on your `PATH`
+- [`ast-bro`](https://github.com/aeroxy/ast-bro) binary (version **3.0.0 – 3.1.x**) available on your `PATH`
 
 > **Upgrade note (pi 0.83):** As of this release the supported Pi range is `^0.83.0`, migrated from `^0.80.0`. pi 0.83.0 bundles TypeBox 1.3.7+ (removing deprecated `Type.Base`, `Type.Awaited`, `Type.Promise`, `Type.AsyncIterator`, `Type.Iterator`, `Type.Options`, and `Value.Mutate`); pi-ast-bro uses none of them, so no source migration was required. The runtime pin also moved to `@earendil-works/pi-tui ^0.83.0`.
 
@@ -137,6 +141,11 @@ How does CostumeAggregate work in backend/crates/core?
 
 This calls `analyze_ast_context` with `target: "CostumeAggregate"` and falls
 back to targeted `read` only when exact source is needed.
+
+Without a `target`, `analyze_ast_context` works on a single file: pass a file
+path and it returns a structural map of that file (symbol targets are
+auto-normalized, e.g. backticks or `fn` prefixes are stripped). For whole
+directories, use `analyze_ast_map` instead.
 
 ### Search in summary mode
 
