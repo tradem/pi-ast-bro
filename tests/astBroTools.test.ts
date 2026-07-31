@@ -208,6 +208,93 @@ describe("astBroTools", () => {
       expect(result.content[0].text).toContain("Invalid");
     });
 
+    it("normalizes a backticked symbol before invoking impact", async () => {
+      mockAstBroAvailable();
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          expect(args).toEqual(["impact", "--json", "make_ctx"]);
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("impact", "`fn make_ctx<T>(x: u32)`", undefined, ctx);
+
+      expect(result.isError).toBe(false);
+    });
+
+    it("builds a file:symbol target for impact from the explicit file param", async () => {
+      mockAstBroAvailable();
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          expect(args).toEqual(["impact", "--json", "src/lib.rs:make_ctx"]);
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("impact", "make_ctx", "src/lib.rs", ctx);
+
+      expect(result.isError).toBe(false);
+    });
+
+    it("splits an embedded path:symbol for implements and passes the path via PATHS", async () => {
+      mockAstBroAvailable();
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "implements") {
+          expect(args).toEqual(["implements", "--json", "Command", "src/lib.rs"]);
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("implements", "src/lib.rs:Command", undefined, ctx);
+
+      expect(result.isError).toBe(false);
+    });
+
+    it("keeps Rust path syntax (double colon) as a bare symbol for implements", async () => {
+      mockAstBroAvailable();
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "implements") {
+          expect(args).toEqual(["implements", "--json", "Player::new"]);
+          return emitSpawnResponse(0, JSON.stringify([{ file: "src/lib.rs", line: 1 }]), "");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("implements", "Player::new", undefined, ctx);
+
+      expect(result.isError).toBe(false);
+    });
+
+    it("appends a format hint when the CLI reports a resolution failure", async () => {
+      mockAstBroAvailable();
+
+      vi.mocked(spawn).mockImplementation((command: string, args: readonly string[]) => {
+        if (command === "ast-bro" && args?.[0] === "impact") {
+          return emitSpawnResponse(2, "", "# note: no symbol matches 'nope'");
+        }
+        return emitSpawnResponse(0, "", "");
+      });
+
+      const ctx = createMockContext();
+      const result = await executeAstBroRefactorTool("impact", "nope", undefined, ctx);
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("no symbol matches");
+      expect(result.content[0].text).toContain("Accepted forms");
+      expect(result.content[0].text).toContain("analyze_ast_search");
+    });
+
     it("returns an error when ast-bro exits non-zero", async () => {
       mockAstBroAvailable();
 

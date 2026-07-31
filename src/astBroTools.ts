@@ -7,6 +7,7 @@ import {
   createProgressThrottle,
   isAstBroAvailable,
   isPathSafe,
+  parseAstTarget,
   progressPayload,
   resolveExistingFilePath,
   runAstBroAsync,
@@ -16,17 +17,29 @@ import {
 /**
  * TypeBox schemas for the two AST refactoring tools.
  *
- * `ast-bro impact` / `ast-bro implements` operate on a *symbol*. The optional
- * `file` path scopes ambiguous symbols, e.g. `src/lib.rs:make_ctx`.
+ * `ast-bro impact` / `ast-bro implements` operate on a *symbol* in one of the
+ * accepted forms: `Name`, `Type.name` (e.g. `Player.take_damage`), or
+ * `path/to/file:Name`. The optional `file` path scopes ambiguous symbols.
+ * Input is normalized before being passed to the CLI (see {@link parseAstTarget}).
  */
 export const AnalyzeAstImpactSchema = Type.Object({
-  symbol: Type.String({ description: "Symbol to analyze, e.g. make_ctx or Player.take_damage" }),
-  file: Type.Optional(Type.String({ description: "Optional file path to scope the symbol" })),
+  symbol: Type.String({
+    description:
+      "Symbol to analyze. Accepted forms: `make_ctx`, `Player.take_damage`, or `src/lib.rs:make_ctx`. Pass the bare symbol name; if the symbol is ambiguous, disambiguate with the `file` parameter instead of embedding the path in the symbol string.",
+  }),
+  file: Type.Optional(
+    Type.String({ description: "Optional file path that defines the symbol, e.g. `src/lib.rs` (relative to the repo root)" }),
+  ),
 });
 
 export const FindImplementationsSchema = Type.Object({
-  symbol: Type.String({ description: "Symbol of the interface, trait, or base class, e.g. Command" }),
-  file: Type.Optional(Type.String({ description: "Optional file path to scope the symbol" })),
+  symbol: Type.String({
+    description:
+      "Symbol of the interface, trait, or base class, e.g. `Command`. Accepted forms: `Name`, `Type.name`, or `src/lib.rs:Name`. Pass the bare symbol name; disambiguate with the `file` parameter instead of embedding the path in the symbol string.",
+  }),
+  file: Type.Optional(
+    Type.String({ description: "Optional file path that defines the symbol, e.g. `src/lib.rs` (relative to the repo root)" }),
+  ),
 });
 
 export type AnalyzeAstImpactParams = Static<typeof AnalyzeAstImpactSchema>;
@@ -339,7 +352,13 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  if (!isSymbolSafe(symbol)) {
+  // Normalize model-provided input before validating: strips backticks,
+  // quotes, language keywords, trailing call noise, and splits an embedded
+  // `path/to/file:Name` out of the symbol so `implements` can pass the path
+  // via PATHS instead of searching for the literal `path:symbol` string.
+  const parsedTarget = parseAstTarget(symbol, file);
+
+  if (!parsedTarget.symbol) {
     return {
       content: [{ type: "text", text: "Invalid or empty symbol." }],
       isError: true,
@@ -347,7 +366,15 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  if (file && !isPathSafe(file)) {
+  if (!isSymbolSafe(parsedTarget.symbol)) {
+    return {
+      content: [{ type: "text", text: "Invalid or unsafe symbol." }],
+      isError: true,
+      details: { exitCode: null },
+    };
+  }
+
+  if (parsedTarget.file && !isPathSafe(parsedTarget.file)) {
     return {
       content: [{ type: "text", text: "Invalid or unsafe file path." }],
       isError: true,
@@ -355,7 +382,7 @@ export async function executeAstBroRefactorTool(
     };
   }
 
-  const target = subcommand === "impact" ? buildImpactTarget(symbol, file) : symbol;
+  const target = subcommand === "impact" ? buildImpactTarget(parsedTarget.symbol, parsedTarget.file) : parsedTarget.symbol;
   if (!target) {
     return {
       content: [{ type: "text", text: "Invalid or unsafe symbol/file path." }],
@@ -369,7 +396,12 @@ export async function executeAstBroRefactorTool(
 
   try {
     throttle.progress(progressPayload("starting", `starting ast-bro ${subcommand}…`));
-    const result = await runAstBroRefactor(subcommand, target, subcommand === "implements" ? file : undefined, signal);
+    const result = await runAstBroRefactor(
+      subcommand,
+      target,
+      subcommand === "implements" ? parsedTarget.file : undefined,
+      signal,
+    );
     throttle.progress(progressPayload("querying", `querying ast-bro ${subcommand}…`));
 
     if (!result) {
@@ -382,8 +414,11 @@ export async function executeAstBroRefactorTool(
 
     if (result.status !== 0) {
       const output = result.stdout || result.stderr || `ast-bro ${subcommand} failed.`;
-      const hint = output.includes("no symbol matches")
-        ? "\n\nHint: ambiguous symbols that live in the language standard library or built-in types (e.g. to_string, clone, str.upper) cannot always be resolved by ast-bro. Try analyze_ast_search with the method name instead."
+      const resolutionFailure = /no symbol matches|not found|cannot find|unable to resolve|unknown symbol|failed to resolve/i.test(
+        output,
+      );
+      const hint = resolutionFailure
+        ? "\n\nHint: ast-bro could not resolve the symbol. Accepted forms: `Name`, `Type.name` (e.g. `Player.take_damage`), or `path/to/file:Name`; use the `file` parameter to disambiguate. Symbols defined in the language standard library or built-in types (e.g. `to_string`, `str.upper`) usually cannot be resolved — use analyze_ast_search instead."
         : "";
       return {
         content: [{ type: "text", text: output + hint }],
@@ -480,6 +515,8 @@ export function registerRefactoringTools(
       "Use this tool when the user asks for callers, callees, or impact of a symbol.",
       "Prefer it over bash/rg/grep for AST-accurate caller analysis.",
       "Pass the bare symbol name and, if ambiguous, the file path that defines it.",
+      "Accepted symbol forms: `Name`, `Type.name` (e.g. `Player.take_damage`), or `path/to/file:Name`. Do not wrap the symbol in backticks or quotes, do not prefix it with `fn`/`struct`/`trait`, and do not append `()` — the tool normalizes these anyway, but a clean value resolves more reliably.",
+      "If the symbol is ambiguous, pass the defining file in the `file` parameter instead of embedding the path in the symbol string.",
       "Do not use this tool for ambiguous symbols defined in the language standard library or built-in types (e.g. to_string/clone, ToString, str.upper); ast-bro may fail to resolve them. Use analyze_ast_search instead.",
     ],
     parameters: AnalyzeAstImpactSchema,
@@ -506,6 +543,8 @@ export function registerRefactoringTools(
     promptGuidelines: [
       "Use this tool when the user asks for implementations of a trait, interface, or base class.",
       "Prefer it over bash/rg/grep for AST-accurate implementation discovery.",
+      "Accepted symbol forms: `Name` (e.g. `Command`), `Type.name`, or `path/to/file:Name`. Do not wrap the symbol in backticks or quotes and do not prefix it with `trait`/`interface`/`class` — the tool normalizes these anyway, but a clean value resolves more reliably.",
+      "If the symbol is ambiguous, pass the defining file in the `file` parameter instead of embedding the path in the symbol string.",
     ],
     parameters: FindImplementationsSchema,
     async execute(_toolCallId, params: FindImplementationsParams, signal, onUpdate, ctx) {

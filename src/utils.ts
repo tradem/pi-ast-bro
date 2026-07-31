@@ -403,6 +403,139 @@ export function isPathSafe(filePath: string): boolean {
 }
 
 /**
+ * Leading language keywords / visibility modifiers models commonly paste in
+ * front of a symbol (`fn make_ctx`, `pub struct Player`, `impl Player`, …).
+ */
+const SYMBOL_KEYWORD_RE =
+  /^(?:(?:pub(?:\s*\([^)]*\))?|async|await|const|static|extern|unsafe|mut|ref|dyn|virtual|override|final|sealed|abstract|private|protected|public|internal|fn|struct|enum|trait|impl|type|class|interface|function|def|defn|let|var|mod|namespace|package|new|constructor|method|sub|func|procedure)\s+)+/i;
+
+/**
+ * Strip formatting noise models commonly add around a symbol value:
+ * paired quotes/backticks/parentheses, leading language keywords, trailing
+ * call/return annotations (`foo()`, `foo<T>(...) -> Result<..>`), trailing
+ * braces and punctuation, and stray whitespace around `.`/`:` separators.
+ *
+ * Pure string cleanup — no path knowledge. Run before safety checks.
+ */
+export function normalizeSymbol(raw: string): string {
+  if (typeof raw !== "string") return "";
+  let s = raw.trim();
+  if (!s) return s;
+
+  // Strip one layer of paired quotes/backticks/parentheses wrapping the value.
+  if (s.length >= 2) {
+    const first = s[0];
+    const last = s[s.length - 1];
+    if (
+      (first === '"' && last === '"') ||
+      (first === "'" && last === "'") ||
+      (first === "`" && last === "`") ||
+      (first === "(" && last === ")")
+    ) {
+      s = s.slice(1, -1).trim();
+    }
+  }
+
+  // Strip leading language keywords and visibility/async modifiers.
+  s = s.replace(SYMBOL_KEYWORD_RE, "").trim();
+
+  // Strip trailing call/return annotations, generics, and block braces.
+  s = s.replace(/\([^)]*\)(?:\s*(?:->|=>)\s*[^;]*)?$/g, "").trim();
+  s = s.replace(/<[^>]*>$/g, "").trim();
+  s = s.replace(/\{[^}]*\}$/g, "").trim();
+
+  // Strip trailing punctuation and collapse whitespace around `.`/`:`.
+  s = s.replace(/[;:,.]+$/g, "").trim();
+  s = s.replace(/\s+([.:])\s+/g, "$1");
+  s = s.replace(/\s+/g, " ").trim();
+
+  return s;
+}
+
+/**
+ * Strip paired quotes/backticks and a leading `./` from a file path a model
+ * may have passed to a tool.
+ */
+export function normalizeFilePath(raw: string): string {
+  if (typeof raw !== "string") return "";
+  let s = raw.trim();
+  if (!s) return s;
+
+  if (s.length >= 2) {
+    const first = s[0];
+    const last = s[s.length - 1];
+    if (
+      (first === '"' && last === '"') ||
+      (first === "'" && last === "'") ||
+      (first === "`" && last === "`")
+    ) {
+      s = s.slice(1, -1).trim();
+    }
+  }
+
+  s = s.replace(/^\.\//, "").trim();
+  return s;
+}
+
+const FILE_EXTENSION_RE = /\.[A-Za-z0-9]+$/;
+
+/**
+ * Heuristic: does the string look like a file path rather than a bare symbol?
+ * True when it contains a path separator or ends in a file extension.
+ */
+export function looksLikePath(s: string): boolean {
+  return s.length > 0 && (/[\\/]/.test(s) || FILE_EXTENSION_RE.test(s));
+}
+
+export interface ParsedAstTarget {
+  /** Cleaned symbol without path prefixes or decoration. */
+  symbol: string;
+  /** Cleaned file path embedded in the symbol (`src/lib.rs:Name`), if any. */
+  file?: string;
+  /** Whether normalization or path-splitting changed the raw inputs. */
+  changed: boolean;
+}
+
+/**
+ * Normalize a tool's `symbol`/`file` parameters into the form ast-bro
+ * expects (`Name`, `Type.name`, or `path/to/file:Name`).
+ *
+ * Handles the most common model mistakes:
+ *  - backticks/quotes around the value (`` `make_ctx` ``)
+ *  - language keywords pasted in front (`fn make_ctx`, `trait Command`)
+ *  - trailing call noise (`make_ctx()`, `foo<T>(...) -> Result<..>`)
+ *  - the file path embedded in the symbol (`src/lib.rs:make_ctx`), which is
+ *    split out and returned as `file` so `implements` can pass it via PATHS
+ *    instead of silently searching for the whole `path:symbol` string
+ */
+export function parseAstTarget(symbol: string, file?: string): ParsedAstTarget {
+  const rawSymbol = typeof symbol === "string" ? symbol : "";
+  const cleanedSymbol = normalizeSymbol(rawSymbol);
+  const explicitFile = file === undefined ? undefined : normalizeFilePath(file);
+
+  let symbolPart = cleanedSymbol;
+  let embeddedFile: string | undefined;
+
+  const colonIndex = symbolPart.lastIndexOf(":");
+  if (colonIndex > 0) {
+    const prefix = symbolPart.slice(0, colonIndex);
+    const suffix = symbolPart.slice(colonIndex + 1).trim();
+    if (looksLikePath(prefix) && suffix.length > 0) {
+      embeddedFile = prefix;
+      symbolPart = suffix;
+    }
+  }
+
+  const effectiveFile = explicitFile ?? embeddedFile;
+  const changed =
+    rawSymbol !== symbolPart ||
+    (explicitFile !== undefined && explicitFile !== file) ||
+    embeddedFile !== undefined;
+
+  return { symbol: symbolPart, file: effectiveFile, changed };
+}
+
+/**
  * Run `ast-bro` with the provided subcommand and target path.
  *
  * Wrapped in try/catch so any crash (missing binary, panic, hang) returns

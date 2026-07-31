@@ -10,6 +10,21 @@ The extension SHALL register two new AI tools with the pi-coding-agent: `analyze
 - **WHEN** the agent executes `analyze_ast_impact` with a valid symbol
 - **THEN** the tool runs `ast-bro impact` and returns an exact JSON payload of callers & tests.
 
+### Requirement: Normalize model-provided symbol and file parameters
+Before invoking `ast-bro`, both tools SHALL normalize the `symbol`/`file` parameters via `parseAstTarget` so that common model formatting mistakes resolve correctly instead of producing "no symbol matches" errors (impact) or silently empty `matches` (implements). Normalization SHALL strip paired quotes/backticks/parentheses, leading language keywords and modifiers (`fn`, `struct`, `trait`, `impl`, `class`, …), trailing call/return annotations, generics, braces, and trailing punctuation, and SHALL split an embedded `path/to/file:Name` out of the symbol field so the path is passed via the `file`/PATHS channel rather than searched as a literal string. Rust path syntax (`Type::method`) and type-qualified names (`Type.method`) SHALL be left intact. The normalized values SHALL then pass the existing `isSymbolSafe`/`isPathSafe` checks before the CLI is invoked.
+
+#### Scenario: Backticked or keyword-prefixed symbol is cleaned before the CLI call
+- **WHEN** the agent passes `` `trait Greeter` `` or `fn make_ctx<T>(x: u32)` as the symbol
+- **THEN** `ast-bro` is invoked with the cleaned symbol (`Greeter` / `make_ctx`) and returns results instead of a resolution failure
+
+#### Scenario: Path embedded in the symbol is split out for implements
+- **WHEN** the agent passes `src/lib.rs:Command` as the symbol of `find_implementations`
+- **THEN** the tool invokes `ast-bro implements --json Command src/lib.rs` (symbol + PATHS) instead of searching for the literal `src/lib.rs:Command` string
+
+#### Scenario: Resolution failure appends a format hint
+- **WHEN** `ast-bro impact` exits non-zero with a symbol-resolution error (`no symbol matches`, `not found`, …)
+- **THEN** the tool returns the CLI output plus a hint listing the accepted forms (`Name`, `Type.name`, `path/to/file:Name`), recommending the `file` parameter for disambiguation and `analyze_ast_search` for standard-library/built-in symbols
+
 ### Requirement: Exact Source Excerpts
 Both tools SHALL inject a new `exact_snippet` property into the JSON array nodes representing matches.
 

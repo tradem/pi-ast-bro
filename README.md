@@ -168,7 +168,15 @@ Read lines 1 to 200 of src/main.rs in full.
 
 ### Refactoring workflow
 
-Both refactoring tools work on a **symbol**. For ambiguous symbols you can add an optional **file** to scope the lookup.
+Both refactoring tools work on a **symbol** in one of these forms:
+
+- `Name` — e.g. `make_ctx`, `Command`
+- `Type.name` — e.g. `Player.take_damage`
+- `path/to/file:Name` — e.g. `src/lib.rs:make_ctx`
+
+For ambiguous symbols you can add an optional **file** to scope the lookup (preferred over embedding the path in the symbol).
+
+The tools tolerate messy input: backticks/quotes, `fn`/`struct`/`trait` prefixes, trailing `()`, and paths embedded in the symbol (`src/lib.rs:make_ctx`) are normalized before the CLI is invoked, so models that do not match the exact format still get results instead of a "no symbol matches" error or an empty result.
 
 1. Call `analyze_ast_impact` with a symbol name:
 
