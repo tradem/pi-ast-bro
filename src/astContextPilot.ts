@@ -5,10 +5,14 @@ import type { StatsManager } from "./statsManager.js";
 import {
   createProgressThrottle,
   extractContextFilePaths,
+  extractMapFilePaths,
   isAstBroAvailable,
+  isExistingFile,
   isPathSafe,
+  normalizeSymbol,
   progressPayload,
   recordReferencedFileSavings,
+  resolveExistingFilePath,
   runAstBroAsync,
   type ProgressDetails,
 } from "./utils.js";
@@ -47,28 +51,51 @@ function isTargetSafe(target: string): boolean {
 }
 
 /**
- * Run `ast-bro context --json --compact --budget` with an optional target.
+ * Run `ast-bro context --json --compact --budget` with a symbol target.
  *
  * The CLI shape is `context [target] path` with flags before positional args.
+ * The target is normalized so model-provided decoration (backticks, quotes,
+ * keywords) does not leak into the CLI and cause "no symbol matches".
  */
 async function runAstBroContext(
   targetPath: string,
-  target: string | undefined,
+  target: string,
   budget: number,
   signal?: AbortSignal,
 ): Promise<AstBroContextResult | null> {
   if (!isPathSafe(targetPath)) return null;
-  if (target !== undefined && !isTargetSafe(target)) return null;
+  const cleanTarget = normalizeSymbol(target);
+  if (!isTargetSafe(cleanTarget)) return null;
 
   const args = ["context", "--json", "--compact", "--budget", String(budget)];
-  if (target) {
-    args.push(target, targetPath);
+  if (cleanTarget) {
+    args.push(cleanTarget, targetPath);
   } else {
     args.push(targetPath);
   }
 
   try {
     return await runAstBroAsync(args, { signal, timeoutMs: 60_000 });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run `ast-bro map --json --compact` on a single file.
+ *
+ * Used as the fallback for `analyze_ast_context` when no symbol `target` is
+ * given: the CLI's `context` command has no file-only mode, so a structural
+ * map of the file is the closest "context for a file" answer.
+ */
+async function runAstBroMapFallback(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<AstBroContextResult | null> {
+  if (!isPathSafe(filePath)) return null;
+
+  try {
+    return await runAstBroAsync(["map", "--json", "--compact", filePath], { signal, timeoutMs: 60_000 });
   } catch {
     return null;
   }
@@ -99,10 +126,11 @@ export function registerAstContextTool(
     name: "analyze_ast_context",
     label: "AST Context",
     description:
-      "Token-budgeted focused context for a symbol or file. Preferred first tool for understanding how a specific symbol or file works before falling back to read.",
+      "Token-budgeted focused context for a symbol or file. Preferred first tool for understanding how a specific symbol or file works before falling back to read. With a `target` symbol it returns the symbol's body plus relevant deps/callers; without a `target` (single file `path`) it returns a structural map of the file.",
     promptGuidelines: [
       "Use this tool first when the user asks how a specific symbol, function, or file works.",
       "Pass the root path or file in `path` and the symbol name in `target` when known.",
+      "When no `target` is given, `path` must be a single existing file; the tool then returns a structural map of that file. For whole directories use analyze_ast_map instead.",
       "Fall back to read only when you need exact whitespace or a specific line range after the AST context.",
     ],
     parameters: AnalyzeAstContextSchema,
@@ -135,7 +163,29 @@ export function registerAstContextTool(
 
       try {
         throttle.progress(progressPayload("starting", "starting ast-bro context…"));
-        const result = await runAstBroContext(params.path, params.target, budget, signal);
+
+        // Without a symbol target the CLI's `context` command cannot resolve a
+        // bare file path (it would treat it as a symbol and fail with
+        // "no symbol matches"). Fall back to a structural `map` for single
+        // files, and fail with a clear, actionable error otherwise.
+        const cleanTarget = params.target === undefined ? undefined : normalizeSymbol(params.target);
+        const hasTarget = cleanTarget !== undefined && cleanTarget.length > 0;
+        const resolvedFile = hasTarget ? null : await isExistingFile(ctx.cwd, params.path);
+
+        let result: AstBroContextResult | null;
+        let referencedPaths: string[];
+        if (hasTarget) {
+          result = await runAstBroContext(params.path, cleanTarget, budget, signal);
+          referencedPaths = [];
+        } else if (resolvedFile) {
+          const filePath = resolveExistingFilePath(ctx.cwd, params.path);
+          result = filePath ? await runAstBroMapFallback(filePath, signal) : null;
+          referencedPaths = extractMapFilePaths(result?.stdout ?? "");
+        } else {
+          return errorResult(
+            "ast-bro context needs a symbol `target` when `path` is not a single existing file. Pass e.g. `target: \"make_ctx\"`, or use `analyze_ast_map` to inspect a whole directory.",
+          );
+        }
         throttle.progress(progressPayload("querying", "querying ast-bro context…"));
 
         if (!result) {
@@ -148,12 +198,11 @@ export function registerAstContextTool(
 
         if (result.status === 0) {
           try {
-            await recordReferencedFileSavings(
-              extractContextFilePaths(result.stdout ?? ""),
-              result.stdout ?? "",
-              ctx.cwd,
-              stats,
-            );
+            const stdout = result.stdout ?? "";
+            const referenced = referencedPaths.length > 0
+              ? referencedPaths
+              : extractContextFilePaths(stdout);
+            await recordReferencedFileSavings(referenced, stdout, ctx.cwd, stats);
           } catch {
             // savings tracking is best-effort
           }

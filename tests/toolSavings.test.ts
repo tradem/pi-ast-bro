@@ -113,7 +113,9 @@ function mockResolvableSources(): void {
     const s = typeof p === "string" ? p : "";
     return s === "/project/src/lib.rs" || s === "/project/src/main.rs" || s === "/project/src/a.rs";
   });
-  vi.mocked(stat).mockImplementation(async (p) => ({ size: 1000 } as Awaited<ReturnType<typeof stat>>));
+  vi.mocked(stat).mockImplementation(
+    async (p) => ({ size: 1000, isFile: () => true }) as Awaited<ReturnType<typeof stat>>,
+  );
 }
 
 describe("AST tool savings tracking", () => {
@@ -145,6 +147,36 @@ describe("AST tool savings tracking", () => {
     const tool = getTool(pi, "analyze_ast_context");
 
     const result = await tool.execute("tc", { path: "src/lib.rs", target: "make_ctx", budget: 2000 }, undefined, undefined, createMockContext());
+
+    expect(result.isError).toBe(false);
+    expect(stats.addReadSavings).toHaveBeenCalledTimes(1);
+    expect(stats.addReadSavings).toHaveBeenCalledWith("src/lib.rs", 1000, expect.any(Number));
+  });
+
+  it("analyze_ast_context without a target falls back to map and records savings", async () => {
+    mockAstBroAvailable();
+    mockResolvableSources();
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "map") {
+        expect(args).toEqual(["map", "--json", "--compact", "/project/src/lib.rs"]);
+        return emitSpawnResponse(
+          0,
+          JSON.stringify({
+            schema: "ast-bro.map.v1",
+            files: [{ path: "src/lib.rs", declarations: [{ kind: "function", name: "make_ctx" }] }],
+          }),
+          "",
+        );
+      }
+      return emitSpawnResponse(0, "", "");
+    });
+
+    const pi = createMockPi();
+    const stats = createFakeStats();
+    registerAstContextTool(pi, createMockSettings(), stats);
+    const tool = getTool(pi, "analyze_ast_context");
+
+    const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
 
     expect(result.isError).toBe(false);
     expect(stats.addReadSavings).toHaveBeenCalledTimes(1);

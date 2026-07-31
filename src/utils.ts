@@ -353,6 +353,44 @@ export function resolveExistingFilePath(cwd: string, filePath: string): string |
 }
 
 /**
+ * True when the path resolves to an existing regular file (not a directory).
+ * Never throws: unresolvable paths and stat errors return `false`.
+ */
+export async function isExistingFile(cwd: string, filePath: string): Promise<boolean> {
+  const resolved = resolveExistingFilePath(cwd, filePath);
+  if (!resolved) return false;
+  try {
+    return (await stat(resolved)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * File paths referenced by `ast-bro map --json` output (`files[].path`).
+ * Returns an empty array for non-JSON output.
+ */
+export function extractMapFilePaths(stdout: string): string[] {
+  const paths = new Set<string>();
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    const files = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { files?: unknown } | null)?.files;
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (typeof file !== "object" || file === null) continue;
+        const path = (file as { path?: unknown }).path;
+        if (typeof path === "string" && path) paths.add(path);
+      }
+    }
+  } catch {
+    // non-JSON output carries no file paths
+  }
+  return [...paths];
+}
+
+/**
  * File paths referenced by `ast-bro graph --json` output (`edges[].from/.to`).
  * Returns an empty array for non-JSON or unrecognised output.
  */

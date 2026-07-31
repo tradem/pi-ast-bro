@@ -20,8 +20,16 @@ The tool SHALL accept a required `path` parameter, an optional `target` symbol p
 - **THEN** the tool invokes `ast-bro context --json --compact --budget <budget> CostumeAggregate backend/crates/core`
 
 #### Scenario: Agent requests context for a file without a target
-- **WHEN** the agent calls `analyze_ast_context` with `path: "src/costume/aggregate.rs"` and no `target`
-- **THEN** the tool invokes `ast-bro context --json --compact --budget <budget> src/costume/aggregate.rs`
+- **WHEN** the agent calls `analyze_ast_context` with `path` pointing to a single existing file and no `target`
+- **THEN** the tool does NOT pass the file path as a symbol (the CLI would fail with "no symbol matches"); instead it invokes `ast-bro map --json --compact <resolved-file>` and returns the structural map of the file
+
+#### Scenario: No target and a non-file path returns a clear error
+- **WHEN** the agent calls `analyze_ast_context` without a `target` and `path` is a directory or does not resolve to an existing file
+- **THEN** the tool returns a validation error explaining that a symbol `target` is required (or that `analyze_ast_map` should be used for whole directories), without invoking `ast-bro`
+
+#### Scenario: Symbol target is normalized before the CLI call
+- **WHEN** the agent passes a decorated target such as `` `fn make_ctx() ` ``
+- **THEN** the tool normalizes it to `make_ctx` before invoking `ast-bro context`
 
 ### Requirement: `analyze_ast_context` uses a configurable default budget
 The tool SHALL use the `contextDefaultBudget` setting as the default `budget` value when the agent does not provide one, while still allowing a per-call override.

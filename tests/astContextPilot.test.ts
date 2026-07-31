@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "../src/config.js";
 import { StatsManager } from "../src/statsManager.js";
@@ -18,6 +19,10 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
+}));
+
+vi.mock("node:fs/promises", () => ({
+  stat: vi.fn(),
 }));
 
 interface TestTool {
@@ -147,13 +152,76 @@ describe("astContextPilot", () => {
     registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
-    await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
+    await tool.execute("tc", { path: "backend/crates/core", target: "CostumeAggregate" }, undefined, undefined, createMockContext());
 
     expect(spawn).toHaveBeenCalledWith(
       "ast-bro",
-      ["context", "--json", "--compact", "--budget", "6000", "src/lib.rs"],
+      ["context", "--json", "--compact", "--budget", "6000", "CostumeAggregate", "backend/crates/core"],
       expect.any(Object),
     );
+  });
+
+  it("falls back to ast-bro map for an existing file path without a target", async () => {
+    mockSettings();
+    mockAstBroAvailable();
+
+    vi.mocked(existsSync).mockImplementation((p: unknown) => p === "/project/src/lib.rs");
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => (p === "/project/src/lib.rs" ? "pub fn a() {}" : ""));
+    vi.mocked(stat as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () =>
+      ({ isFile: () => true }) as Awaited<ReturnType<typeof stat>>,
+    );
+
+    vi.mocked(spawn).mockImplementation((command: string, args?: readonly string[]) => {
+      if (command === "ast-bro" && args?.[0] === "map") {
+        return emitSpawnResponse(
+          0,
+          JSON.stringify({
+            schema: "ast-bro.map.v1",
+            files: [{ path: "src/lib.rs", declarations: [{ kind: "function", name: "a" }] }],
+          }),
+          "",
+        );
+      }
+      return emitSpawnResponse(0, "", "");
+    });
+
+    const pi = createMockPi();
+    const settings = new SettingsManager();
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
+    const tool = getTool(pi, "analyze_ast_context");
+
+    const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
+
+    expect(spawn).toHaveBeenCalledWith(
+      "ast-bro",
+      ["map", "--json", "--compact", "/project/src/lib.rs"],
+      expect.any(Object),
+    );
+    expect(spawn).not.toHaveBeenCalledWith(
+      "ast-bro",
+      expect.arrayContaining(["context"]),
+      expect.any(Object),
+    );
+    expect(result.isError).toBe(false);
+    expect(getText(result)).toContain("ast-bro.map.v1");
+  });
+
+  it("returns a clear error without a target when the path is not a file", async () => {
+    mockSettings();
+    mockAstBroAvailable();
+    vi.mocked(existsSync).mockImplementation(() => false);
+
+    const pi = createMockPi();
+    const settings = new SettingsManager();
+    registerAstContextTool(pi as never, settings, new StatsManager(""));
+    const tool = getTool(pi, "analyze_ast_context");
+
+    const result = await tool.execute("tc", { path: "src" }, undefined, undefined, createMockContext());
+
+    expect(spawn).not.toHaveBeenCalledWith("ast-bro", expect.any(Array), expect.any(Object));
+    expect(result.isError).toBe(true);
+    expect(getText(result)).toContain("target");
+    expect(getText(result)).toContain("analyze_ast_map");
   });
 
   it("returns an error when ast-bro context exits non-zero", async () => {
@@ -172,7 +240,7 @@ describe("astContextPilot", () => {
     registerAstContextTool(pi as never, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
-    const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
+    const result = await tool.execute("tc", { path: "src/lib.rs", target: "make_ctx" }, undefined, undefined, createMockContext());
 
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain("context failed");
@@ -266,7 +334,7 @@ describe("astContextPilot", () => {
 
     const result = await tool.execute(
       "tc",
-      { path: "src/lib.rs" },
+      { path: "src/lib.rs", target: "make_ctx" },
       controller.signal,
       undefined,
       createMockContext(),

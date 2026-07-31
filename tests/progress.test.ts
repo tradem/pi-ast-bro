@@ -156,7 +156,7 @@ describe("tool progress phases", () => {
     const tool = getTool(pi, "analyze_ast_context");
     const { payloads, onUpdate } = createMockOnUpdate();
 
-    await tool.execute("tc", { path: "src/lib.rs" }, undefined, onUpdate, createMockContext());
+    await tool.execute("tc", { path: "src/lib.rs", target: "make_ctx" }, undefined, onUpdate, createMockContext());
 
     expect(phaseSequence(payloads)).toEqual(["starting", "querying"]);
   });
@@ -384,7 +384,7 @@ describe("tool progress phases", () => {
     registerAstContextTool(pi, settings, new StatsManager(""));
     const tool = getTool(pi, "analyze_ast_context");
 
-    const result = await tool.execute("tc", { path: "src/lib.rs" }, undefined, undefined, createMockContext());
+    const result = await tool.execute("tc", { path: "src/lib.rs", target: "make_ctx" }, undefined, undefined, createMockContext());
     expect(result.isError).toBe(false);
   });
 
