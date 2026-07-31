@@ -58,13 +58,15 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 ### Prerequisites
 
-- [Pi](https://pi.dev) coding agent (tested range: `^0.80.0`; newer `0.81+` versions trigger a non-fatal "outside the tested range" warning but keep running)
+- [Pi](https://pi.dev) coding agent (tested range: `^0.83.0`; newer versions trigger a non-fatal "outside the tested range" warning but keep running)
 - [Node.js](https://nodejs.org/) >= 22
 - [`ast-bro`](https://github.com/badlogic/ast-bro) binary (version **3.0.0 – 3.1.x**) available on your `PATH`
 
-> **Upgrade note (pi 0.80 + parser fix):** As of this release the supported Pi range is `^0.80.0`. A latent bug in the in-house semver-range checker was also fixed: the upper bound of `SUPPORTED_AST_BRO_RANGE` (`>=3.0.0 <3.2.0`) is now actually enforced. Previously `ast-bro 3.2.x`–`3.x` were silently tolerated and could load; they are now correctly rejected with an "installed ast-bro (...) is not supported ... Extension disabled." error and the extension disables itself. If you are on `ast-bro 3.2.x` or newer, downgrade to a `3.0.x`–`3.1.x` build or await a widened range.
+> **Upgrade note (pi 0.83):** As of this release the supported Pi range is `^0.83.0`, migrated from `^0.80.0`. pi 0.83.0 bundles TypeBox 1.3.7+ (removing deprecated `Type.Base`, `Type.Awaited`, `Type.Promise`, `Type.AsyncIterator`, `Type.Iterator`, `Type.Options`, and `Value.Mutate`); pi-ast-bro uses none of them, so no source migration was required. The runtime pin also moved to `@earendil-works/pi-tui ^0.83.0`.
 
-> **Release note (dev toolchain):** Dev toolchain lifted to TypeScript 6 + `@types/node` 26; no runtime impact. The loaded extension is compiled by jiti at runtime independently of the locally installed `typescript` package, so this bump affects only the typecheck/test gate.
+> **Upgrade note (pi 0.80 + parser fix):** A latent bug in the in-house semver-range checker was fixed in the 0.80 line: the upper bound of `SUPPORTED_AST_BRO_RANGE` (`>=3.0.0 <3.2.0`) is now actually enforced. Previously `ast-bro 3.2.x`–`3.x` were silently tolerated and could load; they are now correctly rejected with an "installed ast-bro (...) is not supported ... Extension disabled." error and the extension disables itself. If you are on `ast-bro 3.2.x` or newer, downgrade to a `3.0.x`–`3.1.x` build or await a widened range.
+
+> **Release note (dev toolchain):** Dev toolchain lifted to TypeScript 7 + `@types/node` 26 + Vitest 4.1; no runtime impact. The loaded extension is compiled by jiti at runtime independently of the locally installed `typescript` package, so this bump affects only the typecheck/test gate.
 
 ### 1. Install `ast-bro`
 

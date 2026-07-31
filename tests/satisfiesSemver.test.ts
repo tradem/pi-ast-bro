@@ -25,23 +25,23 @@ describe("satisfiesSemver — compound ranges (AND semantics)", () => {
   });
 });
 
-describe("satisfiesSemver — caret range ^0.80.0", () => {
-  const range = "^0.80.0";
+describe("satisfiesSemver — caret range ^0.83.0", () => {
+  const range = "^0.83.0";
 
   it("returns true for the range base version", () => {
-    expect(satisfiesSemver("0.80.0", range)).toBe(true);
+    expect(satisfiesSemver("0.83.0", range)).toBe(true);
   });
 
   it("returns true for a patch bump within the range", () => {
-    expect(satisfiesSemver("0.80.2", range)).toBe(true);
+    expect(satisfiesSemver("0.83.2", range)).toBe(true);
   });
 
   it("returns false for a minor bump (0.x caret locks the minor)", () => {
-    expect(satisfiesSemver("0.81.0", range)).toBe(false);
+    expect(satisfiesSemver("0.84.0", range)).toBe(false);
   });
 
   it("returns false for an older patch", () => {
-    expect(satisfiesSemver("0.79.9", range)).toBe(false);
+    expect(satisfiesSemver("0.82.9", range)).toBe(false);
   });
 });
 
@@ -90,7 +90,7 @@ describe("satisfiesSemver — single-comparator regression cases", () => {
   });
 
   it("ignores build metadata on the version", () => {
-    expect(satisfiesSemver("0.80.2+64f048b", "^0.80.0")).toBe(true);
+    expect(satisfiesSemver("0.83.2+64f048b", "^0.83.0")).toBe(true);
     expect(satisfiesSemver("3.1.0+sha", ">=3.0.0 <3.2.0")).toBe(true);
   });
 });

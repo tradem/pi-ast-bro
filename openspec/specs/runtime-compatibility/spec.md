@@ -15,14 +15,14 @@ The extension SHALL declare a supported pi-coding-agent version range (`SUPPORTE
 
 Additionally, when the running pi version exposes `ctx.isProjectTrusted()`, the `session_start` auto-installer path SHALL consult it before performing the privileged `ast-bro install` spawn: in an untrusted project the spawn SHALL be skipped and a warning notification emitted instead. This trust gate is **additive** to the existing UI/mode gates; it does not replace them. The trust gate is **session-local**: a refused auto-install SHALL NOT persist `config.enabled = false` (trust is a dynamic property that may change session-live). When `ctx.isProjectTrusted()` is not present on the context (older pi versions), the extension SHALL fall back to the prior behavior (no trust gate) rather than crashing.
 
-#### Scenario: User runs pi 0.80.2 against a caret-pinned `^0.80.0` range
-- **WHEN** the extension loads under pi 0.80.2 and `SUPPORTED_PI_RANGE` is `"^0.80.0"`
-- **THEN** `satisfiesSemver("0.80.2", "^0.80.0")` returns `true`
+#### Scenario: User runs pi 0.83.2 against a caret-pinned `^0.83.0` range
+- **WHEN** the extension loads under pi 0.83.2 and `SUPPORTED_PI_RANGE` is `"^0.83.0"`
+- **THEN** `satisfiesSemver("0.83.2", "^0.83.0")` returns `true`
 - **AND** `session_start` does NOT emit an "outside the tested range" warning notification
 
-#### Scenario: User runs pi 0.81.0 against a caret-pinned `^0.80.0` range
-- **WHEN** the extension loads under pi 0.81.0
-- **THEN** `satisfiesSemver("0.81.0", "^0.80.0")` returns `false` (0.x caret locks the minor)
+#### Scenario: User runs pi 0.84.0 against a caret-pinned `^0.83.0` range
+- **WHEN** the extension loads under pi 0.84.0
+- **THEN** `satisfiesSemver("0.84.0", "^0.83.0")` returns `false` (0.x caret locks the minor)
 - **AND** `session_start` emits exactly one warning notification naming the running version and the supported range
 
 #### Scenario: Runtime without `ctx.ui.notify` support
@@ -68,7 +68,7 @@ The extension SHALL provide a single helper `isInteractiveTui(ctx)` (in `src/uti
 - **THEN** it returns `false` (defensive; never throws)
 
 ### Requirement: `satisfiesSemver` parses compound ranges with AND semantics
-The semver-range checker `satisfiesSemver(version, range)` SHALL split the range string on whitespace into one or more comparator tokens, evaluate each token independently against the version, and return `true` only if every token is satisfied (logical AND). A caret token (`^...`) SHALL continue to be evaluated by npm-caret semantics. Single-comparator ranges (`">=3.0.0"`, `"<3.2.0"`, `"=1.2.3"`, `"^0.80.0"`) SHALL remain supported and unchanged. The function SHALL NOT add a dependency on the `semver` package (the existing minimal in-house implementation is extended).
+The semver-range checker `satisfiesSemver(version, range)` SHALL split the range string on whitespace into one or more comparator tokens, evaluate each token independently against the version, and return `true` only if every token is satisfied (logical AND). A caret token (`^...`) SHALL continue to be evaluated by npm-caret semantics. Single-comparator ranges (`">=3.0.0"`, `"<3.2.0"`, `"=1.2.3"`, `"^0.83.0"`) SHALL remain supported and unchanged. The function SHALL NOT add a dependency on the `semver` package (the existing minimal in-house implementation is extended).
 
 #### Scenario: Version inside both bounds of a compound range
 - **WHEN** `satisfiesSemver("3.1.0", ">=3.0.0 <3.2.0")` is called
@@ -88,12 +88,12 @@ The semver-range checker `satisfiesSemver(version, range)` SHALL split the range
 - **THEN** it returns `false` (the `>=3.0.0` token is not satisfied)
 
 #### Scenario: Single-comparator range behavior is preserved
-- **WHEN** `satisfiesSemver("0.80.2", "^0.80.0")` is called
-- **THEN** the range splits into a single token `["^0.80.0"]`
+- **WHEN** `satisfiesSemver("0.83.2", "^0.83.0")` is called
+- **THEN** the range splits into a single token `["^0.83.0"]`
 - **AND** returns `true` (caret semantics unchanged from prior behavior)
 
 #### Scenario: Empty or whitespace-only range is rejected defensively
-- **WHEN** `satisfiesSemver("0.80.0", "   ")` or `satisfiesSemver("0.80.0", "")` is called
+- **WHEN** `satisfiesSemver("0.83.0", "   ")` or `satisfiesSemver("0.83.0", "")` is called
 - **THEN** it returns `false` without throwing
 
 ### Requirement: ast-bro CLI version range is enforced including upper bound

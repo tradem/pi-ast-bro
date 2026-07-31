@@ -413,9 +413,14 @@ export async function executeAstBroRefactorTool(
         );
       }, signal);
     } catch (augErr) {
-      const fallback: Record<string, unknown> = parsed && typeof parsed === "object"
-        ? { ...(parsed as Record<string, unknown>) }
-        : { raw_result: parsed };
+      // Preserve the shape of the successful output (`{ results: [...] }` for
+      // arrays) so the LLM still receives usable raw results when snippet
+      // injection fails.
+      const fallback: Record<string, unknown> = Array.isArray(parsed)
+        ? { results: parsed }
+        : parsed && typeof parsed === "object"
+          ? { ...(parsed as Record<string, unknown>) }
+          : { raw_result: parsed };
       fallback.augmentation_error = augErr instanceof Error ? augErr.message : String(augErr);
       fallback.attention_required =
         "Snippet augmentation failed; exact snippets are unavailable. Use `read` for precise edits.";
