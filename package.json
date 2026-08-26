@@ -1,6 +1,6 @@
 {
   "name": "pi-ast-bro",
-  "version": "1.0.0-beta.5",
+  "version": "1.0.0-beta.6",
   "description": "Pi extension integrating the ast-bro CLI for AST-based context saving and pre-flight syntax checks.",
   "type": "module",
   "main": "./src/index.ts",
@@ -16,15 +16,15 @@
     ]
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.83.0",
-    "typebox": "^1.3.9"
+    "@earendil-works/pi-tui": "^0.84.3",
+    "typebox": "^1.3.19"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.83.0"
+    "@earendil-works/pi-coding-agent": "^0.84.3"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.83.0",
-    "@types/node": "^26.1.2",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@types/node": "^26.3.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

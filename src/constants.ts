@@ -10,7 +10,7 @@
  * than a hard disable, because pi moves quickly and newer versions are often
  * backwards-compatible.
  */
-export const SUPPORTED_PI_RANGE = "^0.83.0";
+export const SUPPORTED_PI_RANGE = "^0.84.3";
 
 /**
  * Supported ast-bro CLI range. 3.0.0 introduced the commands and output
