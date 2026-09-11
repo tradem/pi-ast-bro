@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-#!/usr/bin/env node
 /**
  * Compute a semver-compatible pre-release version from the current git HEAD
  * and write it to package.json and package-lock.json.
