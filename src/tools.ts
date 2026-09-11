@@ -30,12 +30,13 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
     name: "analyze_ast_map",
     label: "AST Map",
     description:
-      "Extract the hierarchical AST block of a symbol or file. Use first for structure questions; pair with analyze_ast_graph for architecture and analyze_ast_search for locating symbols.",
+      "Extract the hierarchical AST block of a file or symbol: declarations, signatures, and line ranges — at a fraction of the tokens a full `read` would cost. Default to this INSTEAD of `read` whenever you need to see what a file contains, find where something is defined, or decide which parts of a file are worth reading in full.",
     promptGuidelines: [
-      "Use this tool when the user asks for the structure of a file or symbol.",
-      "For architecture or module-relationship questions start with analyze_ast_graph, then use analyze_ast_map on key modules, then analyze_ast_search, and only fall back to read for semantics.",
-      "For 'how does this symbol work' questions start with analyze_ast_context before reading the full file.",
-      "Before reading more than two files for a structural question, stop and prefer analyze_ast_graph, analyze_ast_map, or analyze_ast_search first.",
+      "Prefer this over `read` for a first look at any file: it returns the skeleton (declarations + line numbers) without the bodies, so you can target a precise `read` offset afterwards instead of scanning the whole file.",
+      "Use it to locate definitions and understand file layout before editing, before running analyze_ast_context on a symbol, or before answering 'what does this file/module contain?'.",
+      "For architecture or module-relationship questions start with analyze_ast_graph, then drill into key modules here.",
+      "When you need exact whitespace or bodies for an edit, follow up with a targeted `read` of the mapped line range — never edit from the map alone.",
+      "Before reading more than two files for a structural question, stop and map them here first.",
     ],
     parameters: Type.Object({
       path: Type.String({ description: "Path to the file or symbol to map" }),
@@ -137,13 +138,13 @@ export function registerAstTools(pi: ExtensionAPI, stats: StatsManager, settings
     label: "AST Search",
     promptSnippet: "analyze_ast_search(query, top_k?, mode?) — hybrid BM25 + semantic repo search",
     description:
-      "Hybrid BM25 + semantic search over the repository based on syntax and text. Returns the most relevant locations for a query or symbol name. Use mode:'summary' to get a grouped map of hits by file and line range instead of raw snippets.",
+      "Hybrid BM25 + semantic search over the repository based on syntax and text. Finds WHERE things are — it does not explain how code works. Use mode:'summary' to get a grouped map of hits by file and line range instead of raw snippets.",
     promptGuidelines: [
-      "Use this tool when the user asks to search, find, or locate code patterns, symbols, or call sites.",
+      "IMPORTANT — hand off instead of searching when the question is one of these: 'how does X work?' → analyze_ast_context; 'who calls X / what does X affect?' → analyze_ast_impact; 'what implements interface X?' → find_implementations; 'how does X reach Y?' → analyze_ast_trace; 'how do modules relate?' → analyze_ast_graph. Search only finds locations, not explanations.",
+      "Use this tool to LOCATE code: find symbols by name or concept, find patterns, find where a keyword appears — especially when you do not know the exact file or symbol name yet.",
       "Prefer it over bash/rg/grep unless the user explicitly asks for a shell-based search.",
       "If many results are expected, pass a higher top_k (up to 100) or use mode:'summary' for a compact grouped overview.",
-      "For architecture questions start with analyze_ast_graph/analyze_ast_map; for symbol usage questions start with analyze_ast_impact; for implementation questions start with find_implementations.",
-      "Before reading more than two files for a structural question, stop and prefer analyze_ast_graph, analyze_ast_map, or analyze_ast_search first.",
+      "Before reading more than two files for a structural question, stop and prefer analyze_ast_graph, analyze_ast_map, or this tool first.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Search query or symbol name" }),

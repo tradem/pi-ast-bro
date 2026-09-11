@@ -87,9 +87,10 @@ export function registerNavigationTools(
     label: "AST Trace",
     promptSnippet: "analyze_ast_trace(from, to, path?) — shortest static call path between two symbols",
     description:
-      "Trace the shortest static call path from one symbol to another. Returns the BFS path with inlined source bodies, budget-trimmed when oversized.",
+      "Trace the shortest static call path from one symbol to another, with inlined source bodies (budget-trimmed). The one-call answer to 'how does A reach B?' — use it instead of chaining searches and reads across files.",
     promptGuidelines: [
-      "Use this tool when the user asks how a symbol reaches another symbol.",
+      "Use this when asked how data or control flows from one symbol to another, or to explain an indirect call chain — do not reconstruct the path manually from multiple searches and reads.",
+      "Good trigger: you found a call site whose origin is unclear and want the intermediate hops with their code inline.",
       "For ambiguous symbols, scope with the optional path parameter.",
     ],
     parameters: AnalyzeAstTraceSchema,
@@ -170,9 +171,11 @@ export function registerNavigationTools(
     label: "AST Surface",
     promptSnippet: "analyze_ast_surface(path) — true public API surface of a directory or crate",
     description:
-      "Returns the actually-published API surface of a crate or package, resolving re-exports such as `pub use` and `__all__`.",
+      "Returns the actually-published API surface of a crate or package, resolving re-exports such as `pub use` and `__all__`. Run this before writing code against a library — it shows the true public API, which may differ from the files on disk.",
     promptGuidelines: [
-      "Use this tool when the user asks for the public API of a module, crate, or package.",
+      "Use this before integrating with or extending a library/crate/package: it reveals the real public API instead of you guessing from source files.",
+      "Use it to answer 'what does this package export?' in one call instead of reading lib.rs/index.ts/__init__.py.",
+      "For a single symbol's details follow up with analyze_ast_context; for module relationships use analyze_ast_graph.",
     ],
     parameters: AnalyzeAstSurfaceSchema,
     async execute(

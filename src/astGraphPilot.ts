@@ -115,11 +115,12 @@ export function registerAstGraphTool(
     name: "analyze_ast_graph",
     label: "AST Graph",
     description:
-      "Returns a compact file/module dependency graph for architecture, coupling, and relationship questions. Start here before reading individual files.",
+      "Returns a compact file/module dependency graph for architecture, coupling, and relationship questions. THE entry point for unfamiliar codebases: run it once on the repo root before reading any files, then drill down with analyze_ast_map and analyze_ast_context.",
     promptGuidelines: [
-      "Use this tool first for architecture, module relationship, or coupling questions.",
-      "Start with the crate/root path and inspect the returned graph before diving into specific files.",
-      "Combine with analyze_ast_map and analyze_ast_context to explore key modules.",
+      "Use this tool first when starting work in an unfamiliar repo or module, or when asked how modules/crates relate, which files couple to each other, or where a change would ripple.",
+      "Do NOT answer architecture or coupling questions by reading many files — the graph answers them in one call.",
+      "Start with the crate/root path and inspect the returned graph before diving into specific files; then use analyze_ast_map on interesting modules and analyze_ast_context on key symbols.",
+      "Also the right call for reverse-dependency questions: if you need to know which files depend on a specific file, the graph shows it in one call.",
     ],
     parameters: AnalyzeAstGraphSchema,
     async execute(

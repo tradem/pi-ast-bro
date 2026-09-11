@@ -510,10 +510,10 @@ export function registerRefactoringTools(
     label: "AST Impact",
     promptSnippet: "analyze_ast_impact(symbol, file?) — AST-accurate caller/callee/impact analysis with exact snippets",
     description:
-      "Cross-file impact analysis: traces callers, callees, and reverse-deps for a symbol. Returns JSON with exact source snippets for safe edits. Pass the symbol name and optionally a file path to disambiguate. For trait methods like to_string use a type-qualified symbol (e.g. ProjectId.to_string) or fall back to analyze_ast_search.",
+      "Cross-file impact analysis: traces callers, callees, and reverse-deps for a symbol and returns JSON with exact source snippets. Run this BEFORE editing or renaming any symbol — it tells you in one call everything that will break, replacing a dozen grep/read round-trips.",
     promptGuidelines: [
-      "Use this tool when the user asks for callers, callees, or impact of a symbol.",
-      "Prefer it over bash/rg/grep for AST-accurate caller analysis.",
+      "MUST use this tool before you edit, rename, change a signature of, or delete a symbol in code you did not write in this session — verify the blast radius first.",
+      "Prefer it over bash/rg/grep for 'who calls this?' / 'what does this call?' questions: grep cannot resolve dynamic dispatch or same-name symbols, this tool is AST-accurate.",
       "Pass the bare symbol name and, if ambiguous, the file path that defines it.",
       "Accepted symbol forms: `Name`, `Type.name` (e.g. `Player.take_damage`), or `path/to/file:Name`. Do not wrap the symbol in backticks or quotes, do not prefix it with `fn`/`struct`/`trait`, and do not append `()` — the tool normalizes these anyway, but a clean value resolves more reliably.",
       "If the symbol is ambiguous, pass the defining file in the `file` parameter instead of embedding the path in the symbol string.",
@@ -539,10 +539,10 @@ export function registerRefactoringTools(
     label: "Find Implementations",
     promptSnippet: "find_implementations(symbol, file?) — find trait/interface/base-class implementations with exact snippets",
     description:
-      "Find interface implementations, trait implementations, and derived classes for a symbol. Returns JSON with exact source snippets for safe edits.",
+      "Find interface, trait, and base-class implementations (derived classes) for a symbol, with exact source snippets. Use it instead of grepping for implementors — it resolves the type hierarchy AST-accurately.",
     promptGuidelines: [
-      "Use this tool when the user asks for implementations of a trait, interface, or base class.",
-      "Prefer it over bash/rg/grep for AST-accurate implementation discovery.",
+      "Use this whenever you need implementors/subclasses of a trait, interface, or base class — e.g. before adding a trait method, checking a contract's implementations, or enumerating variants of a polymorphic call.",
+      "Prefer it over bash/rg/grep for AST-accurate implementation discovery; grep matches text, not the type hierarchy.",
       "Accepted symbol forms: `Name` (e.g. `Command`), `Type.name`, or `path/to/file:Name`. Do not wrap the symbol in backticks or quotes and do not prefix it with `trait`/`interface`/`class` — the tool normalizes these anyway, but a clean value resolves more reliably.",
       "If the symbol is ambiguous, pass the defining file in the `file` parameter instead of embedding the path in the symbol string.",
     ],

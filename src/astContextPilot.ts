@@ -126,12 +126,13 @@ export function registerAstContextTool(
     name: "analyze_ast_context",
     label: "AST Context",
     description:
-      "Token-budgeted focused context for a symbol or file. Preferred first tool for understanding how a specific symbol or file works before falling back to read. With a `target` symbol it returns the symbol's body plus relevant deps/callers; without a `target` (single file `path`) it returns a structural map of the file.",
+      "Token-budgeted focused context for a symbol or file — the symbol's body plus its relevant deps and callers in one call. This is the DEFAULT first tool for understanding how any specific symbol or file works; it replaces reading whole files and multiple grep round-trips. Fall back to `read` only when you need exact whitespace or a specific line range.",
     promptGuidelines: [
-      "Use this tool first when the user asks how a specific symbol, function, or file works.",
+      "Reach for this first whenever a question is about how a specific symbol, function, class, or file works — before searching for it and before reading the file that contains it.",
+      "Use it before modifying code you have not read yet: it shows the symbol together with its callers/callees so you understand the blast radius in one call.",
       "Pass the root path or file in `path` and the symbol name in `target` when known.",
       "When no `target` is given, `path` must be a single existing file; the tool then returns a structural map of that file. For whole directories use analyze_ast_map instead.",
-      "Fall back to read only when you need exact whitespace or a specific line range after the AST context.",
+      "Do NOT grep or read multiple files to reconstruct call relationships — that is exactly what this tool returns.",
     ],
     parameters: AnalyzeAstContextSchema,
     async execute(
