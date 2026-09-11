@@ -90,7 +90,7 @@ describe("ast-bro version compatibility check", () => {
       "error",
     );
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("Expected >=3.0.0 <3.2.0"),
+      expect.stringContaining("Expected >=3.0.0 <5.0.0"),
       "error",
     );
     expect(writeFileSync).toHaveBeenCalled();
@@ -129,7 +129,7 @@ describe("ast-bro version compatibility check", () => {
   });
 
   it("disables the extension when ast-bro version is above the upper bound (regression: previously tolerated)", async () => {
-    mockVersionCheck("3.5.0");
+    mockVersionCheck("5.0.0");
 
     const pi = createMockPi();
     extensionFactory(pi);
@@ -139,11 +139,11 @@ describe("ast-bro version compatibility check", () => {
     await sessionHandler({}, ctx);
 
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("installed ast-bro (3.5.0) is not supported"),
+      expect.stringContaining("installed ast-bro (5.0.0) is not supported"),
       "error",
     );
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("Expected >=3.0.0 <3.2.0"),
+      expect.stringContaining("Expected >=3.0.0 <5.0.0"),
       "error",
     );
     expect(writeFileSync).toHaveBeenCalled();

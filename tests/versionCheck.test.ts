@@ -91,10 +91,10 @@ describe("pi version compatibility check", () => {
     clearAstBroInfoCache();
   });
 
-  it("fires no 'outside tested range' warning when pi version is 0.83.0", async () => {
+  it("fires no 'outside tested range' warning when pi version is 0.85.1", async () => {
     mockAstBroVersion("3.0.0");
 
-    const { factory } = await loadExtensionWithPiVersion("0.83.0");
+    const { factory } = await loadExtensionWithPiVersion("0.85.1");
     const pi = createMockPi();
     factory(pi);
 
@@ -113,10 +113,10 @@ describe("pi version compatibility check", () => {
     expect(writeFileSync).not.toHaveBeenCalled();
   });
 
-  it("fires exactly one 'outside tested range' warning when pi version is 0.82.0", async () => {
+  it("fires exactly one 'outside tested range' warning when pi version is 0.84.0", async () => {
     mockAstBroVersion("3.0.0");
 
-    const { factory } = await loadExtensionWithPiVersion("0.82.0");
+    const { factory } = await loadExtensionWithPiVersion("0.84.0");
     const pi = createMockPi();
     factory(pi);
 
@@ -130,7 +130,7 @@ describe("pi version compatibility check", () => {
       level === "warning",
     );
     expect(warningCalls).toHaveLength(1);
-    expect(warningCalls[0]![0]).toContain("0.82.0");
-    expect(warningCalls[0]![0]).toContain("^0.83.0");
+    expect(warningCalls[0]![0]).toContain("0.84.0");
+    expect(warningCalls[0]![0]).toContain("^0.85.1");
   });
 });
