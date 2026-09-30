@@ -62,9 +62,11 @@ This extension can intercept any language `ast-bro` supports. By default it acts
 
 ### Prerequisites
 
-- [Pi](https://pi.dev) coding agent (tested range: `^0.83.0`; newer versions trigger a non-fatal "outside the tested range" warning but keep running)
+- [Pi](https://pi.dev) coding agent (tested range: `^0.99.1`; newer versions trigger a non-fatal "outside the tested range" warning but keep running)
 - [Node.js](https://nodejs.org/) >= 22
 - [`ast-bro`](https://github.com/aeroxy/ast-bro) binary (version **3.0.0 – 3.1.x**) available on your `PATH`
+
+> **Upgrade note (pi 0.99 + host-provided peers):** The supported Pi range is now `^0.99.1`. Since pi 0.99 the loader warns when an extension lists host-provided packages in `dependencies`, so `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` and `typebox` moved to `peerDependencies` with a `"*"` range (pi resolves them to its own instances). Pinned versions for typecheck and tests live in `devDependencies`. Runtime deps are now empty, which keeps the install free of duplicate `pi-tui` / `typebox` copies.
 
 > **Upgrade note (pi 0.83):** As of this release the supported Pi range is `^0.83.0`, migrated from `^0.80.0`. pi 0.83.0 bundles TypeBox 1.3.7+ (removing deprecated `Type.Base`, `Type.Awaited`, `Type.Promise`, `Type.AsyncIterator`, `Type.Iterator`, `Type.Options`, and `Value.Mutate`); pi-ast-bro uses none of them, so no source migration was required. The runtime pin also moved to `@earendil-works/pi-tui ^0.83.0`.
 

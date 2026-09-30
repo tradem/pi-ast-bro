@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SUPPORTED_PI_RANGE } from "../src/constants.js";
 import { clearAstBroInfoCache } from "../src/utils.js";
 import { emitSpawnResponse } from "./spawnMocks.js";
 
@@ -91,10 +92,10 @@ describe("pi version compatibility check", () => {
     clearAstBroInfoCache();
   });
 
-  it("fires no 'outside tested range' warning when pi version is 0.85.1", async () => {
+  it("fires no 'outside tested range' warning when the pi version matches SUPPORTED_PI_RANGE", async () => {
     mockAstBroVersion("3.0.0");
 
-    const { factory } = await loadExtensionWithPiVersion("0.85.1");
+    const { factory } = await loadExtensionWithPiVersion("0.99.1");
     const pi = createMockPi();
     factory(pi);
 
@@ -131,6 +132,6 @@ describe("pi version compatibility check", () => {
     );
     expect(warningCalls).toHaveLength(1);
     expect(warningCalls[0]![0]).toContain("0.84.0");
-    expect(warningCalls[0]![0]).toContain("^0.85.1");
+    expect(warningCalls[0]![0]).toContain(SUPPORTED_PI_RANGE);
   });
 });
