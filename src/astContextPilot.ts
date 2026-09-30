@@ -131,6 +131,7 @@ export function registerAstContextTool(
       "Reach for this first whenever a question is about how a specific symbol, function, class, or file works — before searching for it and before reading the file that contains it.",
       "Use it before modifying code you have not read yet: it shows the symbol together with its callers/callees so you understand the blast radius in one call.",
       "Pass the root path or file in `path` and the symbol name in `target` when known.",
+      "`target` must be the name of a symbol that actually exists: resolution is exact-suffix only, with no fuzzy or prefix matching, so a guessed or shortened name fails with `symbol_not_found`. Take the exact name from `analyze_ast_map` or from the `qn` that `analyze_ast_search` returns. When the logic is an inline lambda or branch with no name of its own, target the enclosing symbol instead.",
       "When no `target` is given, `path` must be a single existing file; the tool then returns a structural map of that file. For whole directories use analyze_ast_map instead.",
       "Do NOT grep or read multiple files to reconstruct call relationships — that is exactly what this tool returns.",
     ],
