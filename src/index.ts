@@ -141,7 +141,12 @@ function initializeExtension(pi: ExtensionAPI): void {
     clearSessionSeed(ctx.cwd);
   });
 
-  pi.on("before_agent_start", async (_event, ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
+    // pi 1.2.0 also fires this event for runs started by
+    // `pi.sendMessage(..., { triggerTurn: true })`. The session seed is meant
+    // to prepend the first user prompt, so skip custom-message runs to keep
+    // the pre-1.2.0 behavior.
+    if (event.messageType !== "user") return;
     if (!isSessionSeedActive(ctx.cwd)) return;
     if (seedAlreadyInjected(ctx)) return;
 

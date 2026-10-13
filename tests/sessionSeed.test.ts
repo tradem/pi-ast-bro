@@ -167,7 +167,7 @@ describe("session seed", () => {
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
-    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start" }, ctx);
+    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start", messageType: "user", prompt: "" }, ctx);
 
     expect(spawn).not.toHaveBeenCalledWith("ast-bro", ["digest", expect.any(String)], expect.any(Object));
     const messageResult = results.find(
@@ -186,7 +186,7 @@ describe("session seed", () => {
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
-    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start" }, ctx);
+    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start", messageType: "user", prompt: "" }, ctx);
 
     expect(spawn).toHaveBeenCalledWith("ast-bro", ["digest", "/project"], expect.any(Object));
     const messageResult = results.find(
@@ -208,7 +208,7 @@ describe("session seed", () => {
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
-    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start" }, ctx);
+    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start", messageType: "user", prompt: "" }, ctx);
 
     const messageResult = results.find(
       (r) => r && typeof r === "object" && "message" in r,
@@ -242,7 +242,29 @@ describe("session seed", () => {
 
     const ctx = createMockContext();
     await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
-    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start" }, ctx);
+    const results = await invokeHandlers(pi, "before_agent_start", { type: "before_agent_start", messageType: "user", prompt: "" }, ctx);
+
+    const messageResult = results.find(
+      (r) => r && typeof r === "object" && "message" in r,
+    );
+    expect(messageResult).toBeUndefined();
+  });
+
+  it("does not inject the seed for custom-message runs (pi >= 1.2.0)", async () => {
+    const pi = createMockPi();
+    extensionFactory(pi);
+
+    await configureSettings({ enabled: true });
+    mockAstBro("ast-bro 3.0.0", "digest output");
+
+    const ctx = createMockContext();
+    await invokeHandlers(pi, "session_start", { type: "session_start", reason: "startup" }, ctx);
+    const results = await invokeHandlers(
+      pi,
+      "before_agent_start",
+      { type: "before_agent_start", messageType: "custom", message: { customType: "x", content: "y", display: false } },
+      ctx,
+    );
 
     const messageResult = results.find(
       (r) => r && typeof r === "object" && "message" in r,

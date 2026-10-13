@@ -95,7 +95,7 @@ describe("pi version compatibility check", () => {
   it("fires no 'outside tested range' warning when the pi version matches SUPPORTED_PI_RANGE", async () => {
     mockAstBroVersion("3.0.0");
 
-    const { factory } = await loadExtensionWithPiVersion("0.99.1");
+    const { factory } = await loadExtensionWithPiVersion("1.2.0");
     const pi = createMockPi();
     factory(pi);
 
